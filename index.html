@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121716" media="(prefers-color-scheme: dark)">
 <title>Rücken-Coach</title>
-<meta name="app-version" content="202610191042">
+<meta name="app-version" content="202610191548">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="img/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
-<link rel="stylesheet" href="css/app.css?v=202610191042">
+<link rel="stylesheet" href="css/app.css?v=202610191548">
 <script type="importmap">{"imports":{"onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js"}}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 </head>
@@ -141,12 +141,19 @@
         <div class="hud-ex">
           <span class="hud-phase" id="hud-phase">Vorbereitung</span>
           <span class="hud-name" id="hud-name"></span>
+          <span class="hud-cue" id="hud-cue"></span>
         </div>
         <span class="hud-prog" id="hud-prog"></span>
       </div>
       <div class="hud-timer">
         <span class="timer" id="timer">0</span>
         <span class="reps" id="reps"></span>
+      </div>
+      <div class="motion" id="motion" hidden>
+        <canvas id="motion-anim" width="240" height="240" aria-label="Soll-Bewegung"></canvas>
+        <div class="mo-label" id="motion-label"></div>
+        <ul class="mo-phases" id="motion-phases"></ul>
+        <div class="mo-reps" id="motion-reps"></div>
       </div>
       <div class="checks" id="checks"></div>
       <div class="cue" id="cue" hidden></div>
@@ -162,13 +169,22 @@
           <h2 id="prep-name"></h2>
           <p class="dose" id="prep-dose"></p>
           <div class="prep-cols">
+            <figure class="animfig" id="prep-animfig">
+              <canvas id="prep-anim" width="400" height="400" aria-label="Animation des Bewegungsablaufs"></canvas>
+              <figcaption id="prep-anim-label"></figcaption>
+              <ol class="prep-phases" id="prep-phases"></ol>
+            </figure>
             <figure class="camfig">
               <div id="prep-cam"></div>
               <figcaption id="prep-camtxt"></figcaption>
             </figure>
-            <ol class="steps" id="prep-steps"></ol>
           </div>
+          <ol class="steps" id="prep-steps"></ol>
           <p class="viewcheck" id="prep-viewcheck"></p>
+          <div class="readybar" id="readybar" hidden>
+            <button id="b-ready" class="btn primary wide" type="button">Bereit – los</button>
+            <p class="raise">oder beide Arme 1 Sekunde über den Kopf heben <span id="raise-meter"></span></p>
+          </div>
         </div>
       </div>
     </div>
@@ -245,6 +261,7 @@
         <p class="hint">0 % = deine gemessene Ruhehaltung ist das Ziel. 100 % = volle Symmetrie. Steigere langsam.</p>
         <div class="calib" id="calib-info"></div>
         <label class="toggle"><input type="checkbox" id="s-check"><span>Haltungs-Check zu Beginn jeder Einheit</span></label>
+        <label class="toggle"><input type="checkbox" id="s-confirm"><span>Vor jeder Übung auf „Bereit“ warten</span></label>
         <label class="toggle"><input type="checkbox" id="s-swap"><span>Links/rechts vertauschen (falls Ansagen seitenverkehrt sind)</span></label>
       </section>
       <section class="card">
@@ -305,6 +322,6 @@
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=202610191042"></script>
+<script type="module" src="js/app.js?v=202610191548"></script>
 </body>
 </html>

@@ -13,6 +13,12 @@ const BONES = [
   [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24],
   [23, 25], [25, 27], [24, 26], [26, 28], [7, 11], [8, 12],
 ];
+// Feinere Drahtgitterlinien: Gesicht, Hände, Füße
+const FINE = [
+  [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8], [9, 10],
+  [15, 17], [15, 19], [15, 21], [17, 19], [16, 18], [16, 20], [16, 22], [18, 20],
+  [27, 29], [29, 31], [27, 31], [28, 30], [30, 32], [28, 32],
+];
 
 let landmarker = null;
 export async function loadPoseModel(quality = 'lite', log = () => {}) {
@@ -22,7 +28,7 @@ export async function loadPoseModel(quality = 'lite', log = () => {}) {
   const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
   const opts = (delegate) => ({
     baseOptions: { modelAssetPath: MODELS[quality] || MODELS.lite, delegate },
-    runningMode: 'VIDEO', numPoses: 1,
+    runningMode: 'VIDEO', numPoses: 3,
     minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
   });
   try {
@@ -44,6 +50,25 @@ function angle(a, b, c) {
   const v1 = { x: a.x - b.x, y: a.y - b.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
   const cos = (v1.x * v2.x + v1.y * v2.y) / (Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y) || 1);
   return deg(Math.acos(Math.max(-1, Math.min(1, cos))));
+}
+
+// Bei mehreren Personen (z. B. Kinder im Bild): die größte, möglichst vollständig sichtbare wählen,
+// bevorzugt nahe an der zuletzt verfolgten Person.
+export function pickPose(list, prevCenter) {
+  if (!list?.length) return { lm: null, idx: -1, n: 0 };
+  let best = -1, bestScore = -Infinity;
+  list.forEach((lm, i) => {
+    const xs = lm.filter((p) => (p.visibility ?? 1) > 0.4).map((p) => p.x), ys = lm.filter((p) => (p.visibility ?? 1) > 0.4).map((p) => p.y);
+    if (!xs.length) return;
+    const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+    const vis = lm.reduce((a, p) => a + (p.visibility ?? 1), 0) / lm.length;
+    const cx = (lm[23].x + lm[24].x) / 2, cy = (lm[23].y + lm[24].y) / 2;
+    const near = prevCenter ? Math.hypot(cx - prevCenter[0], cy - prevCenter[1]) : 0;
+    const sc = area * 2 + vis - near * 1.5;
+    if (sc > bestScore) { bestScore = sc; best = i; }
+  });
+  const lm = best >= 0 ? list[best] : null;
+  return { lm, idx: best, n: list.length, center: lm ? [(lm[23].x + lm[24].x) / 2, (lm[23].y + lm[24].y) / 2] : prevCenter };
 }
 
 export function toPoints(lm, W, H, swap = false) {
@@ -106,16 +131,68 @@ export function computeMetrics(P) {
   m._vis.sideLeg = Math.min(K.v, A.v);
   m._vis.ear = E.v;
   m._sideIdx = { S: L[s + 'Sh'], H: L[s + 'Hip'], K: L[s + 'Kn'], A: L[s + 'An'], E: s === 'l' ? L.lEar : L.rEar, W: L[s + 'Wr'] };
+
+  // ── Zusatzmetriken für die Bewegungsphasen ──
+  const ok = (...idx) => idx.every((i) => P[i].v > 0.45);
+  const N = P[L.nose];
+  const torsoF = Math.max(1, dist(midS, midH));
+  const hipW = Math.max(1, Math.abs(LH.x - RH.x));
+  const pairs = [['l', L.lSh, L.lEl, L.lWr, L.lHip, L.lKn, L.lAn, L.lEar], ['r', L.rSh, L.rEl, L.rWr, L.rHip, L.rKn, L.rAn, L.rEar]];
+  let above = 0, atSh = 0, elAtSh = 0, wrAboveEl = 0, behind = 0, ribs = 0, armsSeen = 0;
+  for (const [, sh, el, wr, hp, , , ear] of pairs) {
+    if (!ok(sh, el, wr)) continue;
+    armsSeen++;
+    if (P[wr].y < N.y - 0.12 * torsoF) above++;
+    if (Math.abs(P[wr].y - P[sh].y) < 0.3 * torsoF) atSh++;
+    if (Math.abs(P[el].y - P[sh].y) < 0.28 * torsoF) elAtSh++;
+    if (P[wr].y < P[el].y - 0.15 * torsoF) wrAboveEl++;
+    if (P[wr].y < P[sh].y && dist(P[wr], P[ear]) < 0.75 * sw) behind++;
+    if (ok(hp) && P[wr].y > P[sh].y + 0.25 * torsoF && P[wr].y < P[hp].y + 0.1 * torsoF && Math.abs(P[wr].x - P[sh].x) < 0.55 * sw) ribs++;
+  }
+  m.wristsAboveHead = armsSeen ? above : null;
+  m.wristsAtShoulder = armsSeen ? atSh : null;
+  m.armsU = armsSeen === 2 ? (elAtSh === 2 && wrAboveEl === 2 ? 1 : 0) : null;
+  m.handsBehindHead = armsSeen ? behind : null;
+  m.wristsAtRibs = armsSeen ? ribs : null;
+  m.wristSpread = ok(L.lWr, L.rWr) ? Math.abs(P[L.lWr].x - P[L.rWr].x) / sw : null;
+  m.kneeLiftL = ok(L.lHip, L.lKn) ? (P[L.lKn].y - P[L.lHip].y) / torsoF : null;
+  m.kneeLiftR = ok(L.rHip, L.rKn) ? (P[L.rKn].y - P[L.rHip].y) / torsoF : null;
+  m.kneeLift = m.kneeLiftL !== null && m.kneeLiftR !== null ? Math.min(m.kneeLiftL, m.kneeLiftR) : (m.kneeLiftL ?? m.kneeLiftR);
+  if (ok(L.lKn, L.rKn, L.lHip, L.rHip)) {
+    const lifted = P[L.lKn].y < P[L.rKn].y ? P[L.lKn] : P[L.rKn];
+    m.kneeOut = Math.abs(lifted.x - midH.x) / hipW;
+    m.kneeSpread = Math.abs(P[L.lKn].x - P[L.rKn].x) / hipW;
+  } else { m.kneeOut = null; m.kneeSpread = null; }
+  m.pelvisShift = ok(L.lHip, L.rHip, L.lAn, L.rAn) ? (((midH.x - (P[L.lAn].x + P[L.rAn].x) / 2) * leftDir) / hipW) : null;
+  m.footLift = ok(L.lAn, L.rAn) ? Math.abs(P[L.lAn].y - P[L.rAn].y) / torsoF : null;
+  m.neckLen = ok(L.lEar, L.rEar, L.lSh, L.rSh) ? (midS.y - (P[L.lEar].y + P[L.rEar].y) / 2) / sw : null;
+  m.noseY = ok(L.nose) ? N.y / torsoF : null;
+  m.shoulderHipDiff = m.shoulderTilt - m.hipTilt; // unabhängig von einer schräg stehenden Kamera
+  // Seitlich
+  m.headDrop = ok(L.nose) && S.v > 0.45 ? (N.y - S.y) / torso : null;
+  m.noseAboveShoulder = m.headDrop === null ? null : -m.headDrop;
+  const W = P[L[s + 'Wr']], W2 = P[L[(s === 'l' ? 'r' : 'l') + 'Wr']];
+  const wa = [W, W2].filter((w) => w.v > 0.4).map((w) => (S.y - w.y) / torso);
+  m.wristAboveShoulder = wa.length ? Math.max(...wa) : null;
+  m.lying = m.torsoFromHorizontal < 30 ? 1 : 0;
+  const hipAng = (sh, hp, kn) => (ok(sh, hp, kn) ? angle(P[sh], P[hp], P[kn]) : null);
+  const ha = [hipAng(L.lSh, L.lHip, L.lKn), hipAng(L.rSh, L.rHip, L.rKn)].filter((v) => v !== null);
+  m.hipAngleMin = ha.length ? Math.min(...ha) : null;
+  m.hipAngleMax = ha.length ? Math.max(...ha) : null;
+  const kneeAng = (hp, kn, an) => (ok(hp, kn, an) ? angle(P[hp], P[kn], P[an]) : null);
+  const ka = [kneeAng(L.lHip, L.lKn, L.lAn), kneeAng(L.rHip, L.rKn, L.rAn)].filter((v) => v !== null);
+  m.kneeAngleMax = ka.length ? Math.max(...ka) : null;
+  m.hipToAnkleY = ok(L.lAn, L.rAn) ? (((P[L.lAn].y + P[L.rAn].y) / 2) - midH.y) / torsoF : null;
   return m;
 }
 
 // ── Prüfungen ─────────────────────────────────────────────
 // center: Standard-Zielwert; calib: Schlüssel der Kalibrierung (Skoliose: persönliche Referenz)
 export const CHECKS = {
-  shouldersLevel: { label: 'Schultern gleich hoch', metric: 'shoulderTilt', center: 0, tol: 4, calib: 'shoulderTilt', vis: 'shoulders', unit: '°', cueHigh: 'Linke Schulter sinken lassen', cueLow: 'Rechte Schulter sinken lassen', guide: { type: 'level', a: L.lSh, b: L.rSh }, bones: [[11, 12]] },
-  pelvisLevel: { label: 'Becken gerade', metric: 'hipTilt', center: 0, tol: 4, calib: 'hipTilt', vis: 'hips', unit: '°', cueHigh: 'Linke Beckenseite sinken lassen, Gewicht auf beide Füße', cueLow: 'Rechte Beckenseite sinken lassen, Gewicht auf beide Füße', guide: { type: 'level', a: L.lHip, b: L.rHip }, bones: [[23, 24]] },
-  trunkCentered: { label: 'Oberkörper mittig', metric: 'trunkShift', center: 0, tol: 0.08, calib: 'trunkShift', vis: 'shoulders', unit: '', cueHigh: 'Oberkörper etwas nach rechts zur Mitte', cueLow: 'Oberkörper etwas nach links zur Mitte', guide: { type: 'plumb' }, bones: [[11, 23], [12, 24]] },
-  headCentered: { label: 'Kopf mittig', metric: 'headShift', center: 0, tol: 0.12, calib: 'headShift', vis: 'head', unit: '', cueHigh: 'Kopf etwas nach rechts zur Mitte', cueLow: 'Kopf etwas nach links zur Mitte', guide: { type: 'headPlumb' }, bones: [[7, 11], [8, 12]] },
+  shouldersLevel: { label: 'Schultern gleich hoch', metric: 'shoulderTilt', center: 0, tol: 3, calib: 'shoulderTilt', vis: 'shoulders', unit: '°', cueHigh: 'Linke Schulter sinken lassen', cueLow: 'Rechte Schulter sinken lassen', guide: { type: 'level', a: L.lSh, b: L.rSh }, bones: [[11, 12]] },
+  pelvisLevel: { label: 'Becken gerade', metric: 'hipTilt', center: 0, tol: 3, calib: 'hipTilt', vis: 'hips', unit: '°', cueHigh: 'Linke Beckenseite sinken lassen, Gewicht auf beide Füße', cueLow: 'Rechte Beckenseite sinken lassen, Gewicht auf beide Füße', guide: { type: 'level', a: L.lHip, b: L.rHip }, bones: [[23, 24]] },
+  trunkCentered: { label: 'Oberkörper mittig', metric: 'trunkShift', center: 0, tol: 0.06, calib: 'trunkShift', vis: 'shoulders', unit: '', cueHigh: 'Oberkörper etwas nach rechts zur Mitte', cueLow: 'Oberkörper etwas nach links zur Mitte', guide: { type: 'plumb' }, bones: [[11, 23], [12, 24]] },
+  headCentered: { label: 'Kopf mittig', metric: 'headShift', center: 0, tol: 0.1, calib: 'headShift', vis: 'head', unit: '', cueHigh: 'Kopf etwas nach rechts zur Mitte', cueLow: 'Kopf etwas nach links zur Mitte', guide: { type: 'headPlumb' }, bones: [[7, 11], [8, 12]] },
   armsSymmetric: { label: 'Ellbogen gleich hoch', metric: 'elbowDiff', center: 0, tol: 0.15, vis: 'elbows', unit: '', cueHigh: 'Linken Ellbogen etwas höher', cueLow: 'Rechten Ellbogen etwas höher', guide: { type: 'level', a: L.lEl, b: L.rEl, push: 'up' }, bones: [[11, 13], [12, 14]] },
   wristsSymmetric: { label: 'Hände gleich hoch', metric: 'wristDiff', center: 0, tol: 0.18, vis: 'wrists', unit: '', cueHigh: 'Linke Hand etwas höher', cueLow: 'Rechte Hand etwas höher', guide: { type: 'level', a: L.lWr, b: L.rWr, push: 'up' }, bones: [[13, 15], [14, 16]] },
   trunkUpright: { label: 'Oberkörper aufrecht', metric: 'trunkLean', center: 0, tol: 10, vis: 'side', unit: '°', side: true, cueHigh: 'Oberkörper aufrichten', cueLow: 'Nicht nach hinten lehnen', guide: { type: 'sidePlumb' }, bones: [['S', 'H']] },
@@ -216,10 +293,35 @@ export function drawOverlay(ctx, P, metrics, results, colors) {
     ctx.lineWidth = lw * (badBones.has(key) || badBones.has(key2) ? 1.8 : 1.2);
     ctx.beginPath(); ctx.moveTo(P[a].x, P[a].y); ctx.lineTo(P[b].x, P[b].y); ctx.stroke();
   }
-  for (const i of [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) {
+  // feine Linien (Gesicht, Hände, Füße)
+  ctx.strokeStyle = colors.neutral; ctx.lineWidth = lw * 0.6;
+  for (const [a, b] of FINE) {
+    if (P[a].v < 0.4 || P[b].v < 0.4) continue;
+    ctx.beginPath(); ctx.moveTo(P[a].x, P[a].y); ctx.lineTo(P[b].x, P[b].y); ctx.stroke();
+  }
+  // Wirbelsäule als Kette aus Wirbeln (Kopfmitte → Nacken → Becken)
+  if (P[11].v > 0.4 && P[12].v > 0.4 && P[23].v > 0.4 && P[24].v > 0.4) {
+    const ns = { x: (P[11].x + P[12].x) / 2, y: (P[11].y + P[12].y) / 2 }, ps = { x: (P[23].x + P[24].x) / 2, y: (P[23].y + P[24].y) / 2 };
+    const hc = P[7].v > 0.4 && P[8].v > 0.4 ? { x: (P[7].x + P[8].x) / 2, y: (P[7].y + P[8].y) / 2 } : P[0];
+    const trunkRes = results.find((r) => r.id === 'trunkCentered' || r.id === 'trunkUpright');
+    const sc = trunkRes && (trunkRes.status === 'bad' || trunkRes.status === 'warn') ? colors.bad : trunkRes?.status === 'ok' ? colors.ok : colors.spine || colors.neutral;
+    ctx.strokeStyle = sc; ctx.lineWidth = lw * 1.1;
+    ctx.beginPath(); ctx.moveTo(hc.x, hc.y); ctx.lineTo(ns.x, ns.y); ctx.lineTo(ps.x, ps.y); ctx.stroke();
+    ctx.fillStyle = sc;
+    for (let k = 0; k <= 7; k++) {
+      const t = k / 7, x = ns.x + (ps.x - ns.x) * t, y = ns.y + (ps.y - ns.y) * t;
+      ctx.beginPath(); ctx.arc(x, y, lw * 1.0, 0, Math.PI * 2); ctx.fill();
+    }
+    for (let k = 1; k <= 2; k++) {
+      const t = k / 3, x = hc.x + (ns.x - hc.x) * t, y = hc.y + (ns.y - hc.y) * t;
+      ctx.beginPath(); ctx.arc(x, y, lw * 0.8, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  for (let i = 0; i < 33; i++) {
     if (P[i].v < 0.4) continue;
+    const big = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28].includes(i);
     ctx.fillStyle = colors.joint;
-    ctx.beginPath(); ctx.arc(P[i].x, P[i].y, lw * 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(P[i].x, P[i].y, lw * (big ? 1.4 : 0.8), 0, Math.PI * 2); ctx.fill();
   }
   // Ziel-Hilfslinien (korrigierte Haltung)
   ctx.setLineDash([lw * 3, lw * 2.2]);
@@ -287,7 +389,7 @@ function drawGuide(ctx, P, m, r, colors, lw) {
 // Kompakte Momentaufnahme der Metriken (für Speicherung)
 export function compactMetrics(m) {
   if (!m) return null;
-  const keys = ['shoulderTilt', 'hipTilt', 'trunkShift', 'headShift', 'elbowDiff', 'wristDiff', 'trunkLean', 'hipAngle', 'kneeAngle', 'earForward', 'torsoFromHorizontal', 'armLevel', 'legLevel'];
+  const keys = ['shoulderTilt', 'hipTilt', 'shoulderHipDiff', 'trunkShift', 'headShift', 'elbowDiff', 'wristDiff', 'trunkLean', 'hipAngle', 'kneeAngle', 'earForward', 'torsoFromHorizontal', 'armLevel', 'legLevel', 'wristsAboveHead', 'wristsAtShoulder', 'armsU', 'wristSpread', 'kneeLift', 'kneeOut', 'pelvisShift', 'footLift', 'neckLen', 'headDrop', 'wristAboveShoulder', 'hipAngleMin', 'hipAngleMax', 'kneeAngleMax', 'hipToAnkleY'];
   const o = {};
   for (const k of keys) if (m[k] !== null && m[k] !== undefined && Number.isFinite(m[k])) o[k] = Math.round(m[k] * 100) / 100;
   return o;

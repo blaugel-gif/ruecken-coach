@@ -1,11 +1,12 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610191042';
-import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191042';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191042';
-import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191042';
-import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191042';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191042';
-import { renderDashboard } from './dashboard.js?v=202610191042';
-import * as neural from './neuralvoice.js?v=202610191042';
+import { EQUIPMENT, byId } from './exercises.js?v=202610191548';
+import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191548';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191548';
+import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191548';
+import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191548';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191548';
+import { renderDashboard } from './dashboard.js?v=202610191548';
+import * as neural from './neuralvoice.js?v=202610191548';
+import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610191548';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -201,7 +202,8 @@ async function startSession() {
     plan, speaker, devMode, t0: performance.now(), startedAt: new Date(),
     id: crypto.randomUUID(),
     checkin: { stiffness: +$('#ci-stiff').value, pain: +$('#ci-pain').value },
-    items: plan.items.map((it) => ({ ...it, workSec: 0, frames: 0, inFrame: 0, scored: 0, scoreSum: 0, cues: 0, badFrames: {}, mSum: {}, mN: 0, flags: 0 })),
+    items: plan.items.map((it) => ({ ...it, workSec: 0, frames: 0, inFrame: 0, scored: 0, scoreSum: 0, cues: 0, badFrames: {}, mSum: {}, mN: 0, flags: 0, repResults: [] })),
+    repRows: [], tracker: null, repPosture: { n: 0, sum: 0 }, repStart: 0, raiseSince: null, prevCenter: null, stopPrepAnim: null, stopMiniAnim: null, miniFor: null, roll: null,
     samples: [], lastSample: 0, check: [], evaluator: null, results: [], metrics: null, P: null,
     dev: devMode ? { env: {}, events: [], notes: { flags: [] } } : null, snapshots: [], snappedSteps: new Set(),
     lastSeen: performance.now(), lastFrameWarn: 0, fps: { n: 0, t: performance.now(), value: 0 }, lastLm: 0,
@@ -241,7 +243,7 @@ async function cameraPermission() {
 async function openCamera() {
   if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('getUserMedia fehlt'), { name: 'NotSupportedError' });
   try {
-    return await navigator.mediaDevices.getUserMedia({ video: { facingMode: settings.camera, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    return await navigator.mediaDevices.getUserMedia({ video: { facingMode: settings.camera, width: { ideal: 1920 }, height: { ideal: 1080 }, resizeMode: 'none' }, audio: false });
   } catch (e) {
     // Manche Geräte scheitern an den Auflösungswünschen: einfach nochmal ohne
     if (e.name === 'OverconstrainedError' || e.name === 'NotReadableError') return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -271,7 +273,10 @@ async function startCamera() {
     const v = $('#video'); v.srcObject = S.stream; await v.play();
     $('#stage').classList.toggle('mirror', settings.camera === 'user');
     const track = S.stream.getVideoTracks()[0];
-    devLog('camera', { settings: track.getSettings?.(), label: track.label });
+    const caps = track.getCapabilities?.() || {};
+    // So weitwinklig wie möglich (kleinster Zoom), damit der ganze Körper ins Bild passt
+    if (caps.zoom && typeof caps.zoom.min === 'number') { try { await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] }); } catch (e) { devLog('zoom_error', { e: String(e) }); } }
+    devLog('camera', { settings: track.getSettings?.(), label: track.label, zoom: caps.zoom || null, w: caps.width?.max, h: caps.height?.max });
   } catch (e) {
     devLog('camera_error', { e: String(e), name: e?.name, permission: await cameraPermission() });
     $('#camstatus').textContent = '';
@@ -407,6 +412,17 @@ function devLog(ev, data = {}) {
   S.dev.events.push({ t: Math.round(performance.now() - S.t0), ev, ...data });
 }
 
+// Neigung des Handys (Kamera schief?) aus dem Beschleunigungssensor
+window.addEventListener('devicemotion', (e) => {
+  if (!S) return;
+  const g = e.accelerationIncludingGravity; if (!g || g.x === null) return;
+  const a = ((screen.orientation?.angle ?? window.orientation ?? 0) * Math.PI) / 180;
+  const x = g.x * Math.cos(a) + g.y * Math.sin(a), y = -g.x * Math.sin(a) + g.y * Math.cos(a);
+  const r = (Math.atan2(x, y) * 180) / Math.PI;
+  S.roll = S.roll === null ? r : S.roll + 0.1 * (r - S.roll);
+  S.upright = Math.abs(g.z ?? 0) < 6;
+});
+
 function evalSettings(extra = {}) {
   return { tolerance: settings.tolerance, reference: settings.reference, correctionGoal: settings.correctionGoal, calib: settings.calib, ...extra };
 }
@@ -414,9 +430,43 @@ function evalSettings(extra = {}) {
 function onStep(step) {
   // vorherigen Arbeitsschritt verbuchen
   const prev = S.prevStep;
-  if (prev && prev.kind === 'work') S.items[prev.idx].workSec += Math.min(prev.duration, S.lastWorkEl || 0);
+  if (prev && prev.kind === 'work') { S.items[prev.idx].workSec += Math.min(prev.duration, S.lastWorkEl || 0); finalizeRep(prev, step); }
   if (prev && prev.kind === 'check') finishPostureCheck();
   S.prevStep = step; S.lastWorkEl = 0;
+  S.raiseSince = null;
+  const mot = step.item ? MOTIONS[step.item.id] : null;
+  if (step.kind === 'work') {
+    S.tracker = mot ? new MotionTracker(mot, step.item) : null;
+    S.tracker?.reset(performance.now());
+    S.repPosture = { n: 0, sum: 0 }; S.repStart = performance.now();
+  }
+  // Animation in der Vorbereitung
+  S.stopPrepAnim?.(); S.stopPrepAnim = null;
+  if (step.kind === 'prep' && mot) {
+    $('#prep-animfig').hidden = false;
+    $('#prep-phases').innerHTML = mot.phases.map((p) => `<li data-ph="${p.id}">${esc(p.label)}</li>`).join('');
+    S.stopPrepAnim = animateMotion($('#prep-anim'), mot, {
+      color: '#E7ECEA', farColor: 'rgba(231,236,234,0.45)', propColor: 'rgba(200,210,208,0.7)', joint: '#FFE14D', bg: 'rgba(11,15,15,0.9)',
+      onLabel: (label, id) => { $('#prep-anim-label').textContent = label; $$('#prep-phases li').forEach((li) => li.classList.toggle('on', li.dataset.ph === id)); },
+    });
+  } else if (step.kind === 'prep' || step.kind === 'check') { $('#prep-animfig').hidden = true; }
+  $('#readybar').hidden = !(step.kind === 'prep' && step.waiting);
+  // Mini-Animation während der Übung
+  const showMini = mot && ['work', 'rest', 'switch'].includes(step.kind);
+  $('#motion').hidden = !showMini;
+  if (showMini && S.miniFor !== step.item.id) {
+    S.stopMiniAnim?.();
+    S.miniFor = step.item.id;
+    S.stopMiniAnim = animateMotion($('#motion-anim'), mot, {
+      color: '#BFD3EE', farColor: 'rgba(191,211,238,0.4)', propColor: 'rgba(200,210,208,0.6)', joint: '#FFE14D', okColor: '#2FBF71', bg: 'rgba(0,0,0,0.6)',
+      status: () => (S?.tracker ? S.tracker.reached : {}),
+      onLabel: (label) => { const el = $('#motion-label'); if (el.textContent !== label) el.textContent = label; },
+    });
+    renderRepDots(step.idx);
+  }
+  if (!showMini && S.stopMiniAnim) { S.stopMiniAnim(); S.stopMiniAnim = null; S.miniFor = null; }
+  if (showMini) renderMotionPhases(mot);
+  $('#hud-cue').textContent = step.kind === 'work' && step.item ? byId[step.item.id].cue : '';
 
   const it = step.item;
   if (step.kind === 'prep') S.evaluator = new PostureEvaluator(byId[it.id].checks, evalSettings());
@@ -449,7 +499,7 @@ function onStep(step) {
 
 function onTick(step, el, left) {
   if (step.kind === 'done') return;
-  $('#timer').textContent = Math.max(0, left);
+  $('#timer').textContent = Number.isFinite(left) ? Math.max(0, left) : '';
   if (step.kind === 'work') S.lastWorkEl = el;
   // Haltungs-Check: Ende des Schritts sauber verbuchen
   if (step.kind === 'check' && el > 5 && el < 11.5 && S.metrics && S.metrics._frontal > 0.4 && S.metrics._vis.shoulders > 0.6 && S.metrics._vis.hips > 0.5) {
@@ -483,9 +533,13 @@ function loop() {
   if (cv.width !== v.videoWidth) { cv.width = v.videoWidth; cv.height = v.videoHeight; }
   let res;
   try { res = S.landmarker.detectForVideo(v, now); } catch (e) { devLog('detect_error', { e: String(e) }); return; }
-  const lm = res?.landmarks?.[0];
+  const pick = pickPose(res?.landmarks, S.prevCenter);
+  const lm = pick.lm;
+  if (lm) S.prevCenter = pick.center;
+  if (pick.n > 1 && now - (S.lastMulti || 0) > 10000) { S.lastMulti = now; devLog('multi_person', { n: pick.n, chosen: pick.idx }); }
   S.P = lm ? toPoints(lm, cv.width, cv.height, settings.swapSides) : null;
   S.metrics = S.P ? computeMetrics(S.P) : null;
+  if (S.metrics && S.roll !== null) S.metrics.roll = Math.round(S.roll * 10) / 10;
   S.results = S.evaluator ? S.evaluator.update(S.metrics, now) : [];
   drawOverlay(cv.getContext('2d'), S.P, S.metrics, step && ['work', 'check', 'prep'].includes(step.kind) ? S.results : [], OVERLAY_COLORS);
 
@@ -498,12 +552,26 @@ function loop() {
   updateHud(step, now);
   if (S.runner.paused) return;
 
+  if (step.kind === 'prep' && step.waiting) {
+    const up = S.metrics?.wristsAboveHead === 2 && S.runner.elapsedInStep(now) > 3;
+    if (up) {
+      S.raiseSince ??= now;
+      const held = (now - S.raiseSince) / 1000;
+      $('#raise-meter').textContent = held < 1 ? `${Math.round(held * 100)} %` : '✓';
+      if (held >= 1) { S.runner.confirm('gesture'); $('#readybar').hidden = true; S.raiseSince = null; }
+    } else { S.raiseSince = null; $('#raise-meter').textContent = ''; }
+  }
+
   if (step.kind === 'work') {
     const st = S.items[step.idx];
     st.frames++;
+    if (S.tracker) {
+      S.tracker.update(S.metrics, now);
+      if (now - (S.lastPhaseRender || 0) > 200) { S.lastPhaseRender = now; renderMotionPhases(S.tracker.motion); }
+    }
     if (S.metrics) { st.inFrame++; S.lastSeen = now; }
     const sc = frameScore(S.results);
-    if (sc !== null) { st.scored++; st.scoreSum += sc; }
+    if (sc !== null) { st.scored++; st.scoreSum += sc; S.repPosture.n++; S.repPosture.sum += sc; }
     for (const r of S.results) if (r.status === 'bad') st.badFrames[r.id] = (st.badFrames[r.id] || 0) + 1;
     const cm = compactMetrics(S.metrics);
     if (cm) { st.mN++; for (const [k, val] of Object.entries(cm)) st.mSum[k] = (st.mSum[k] || 0) + val; }
@@ -544,10 +612,60 @@ function updateHud(step, now) {
     else {
       const frontal = m._frontal > 0.4;
       const ok = S.expectView === 'front' ? frontal : m._frontal < 0.35;
-      vc.textContent = ok ? (S.expectView === 'front' ? 'Kamera passt: frontal erkannt.' : 'Kamera passt: seitlich erkannt.') : (S.expectView === 'front' ? 'Dreh dich frontal zur Kamera.' : 'Kamera seitlich stellen bzw. seitlich zur Kamera drehen.');
-      vc.className = `viewcheck ${ok ? 'ok' : 'bad'}`;
+      const tilted = S.roll !== null && S.upright && Math.abs(S.roll) > 3;
+      vc.textContent = (ok ? (S.expectView === 'front' ? 'Kamera passt: frontal erkannt.' : 'Kamera passt: seitlich erkannt.') : (S.expectView === 'front' ? 'Dreh dich frontal zur Kamera.' : 'Kamera seitlich stellen bzw. seitlich zur Kamera drehen.'))
+        + (tilted ? ` Handy steht ${Math.abs(Math.round(S.roll))}° schief – bitte gerade hinstellen, sonst messe ich Schulter und Becken schief.` : '');
+      vc.className = `viewcheck ${ok && !tilted ? 'ok' : 'bad'}`;
     }
   }
+}
+
+function finalizeRep(step, nextStep) {
+  const it = S.items[step.idx];
+  const mot = MOTIONS[step.item.id];
+  const posture = S.repPosture.n ? S.repPosture.sum / S.repPosture.n : null;
+  const r = S.tracker ? S.tracker.result(posture) : { phases: {}, phaseScore: null, postureScore: posture === null ? null : Math.round(posture * 1000) / 1000, score: posture === null ? null : Math.round(posture * 1000) / 1000 };
+  const durMs = Math.round(Math.min(step.duration, S.lastWorkEl || 0) * 1000);
+  if (durMs < 1500) return; // übersprungen
+  const row = { exercise_id: step.item.id, exercise_idx: step.idx, rep: step.rep, side: step.side, started_ms: Math.round(S.repStart - S.t0), duration_ms: durMs, kind: mot?.kind || null, ...r };
+  it.repResults.push(row); S.repRows.push(row);
+  devLog('rep', row);
+  renderRepDots(step.idx);
+  // kurze Rückmeldung in der Pause
+  if (nextStep && ['rest', 'switch'].includes(nextStep.kind) && mot) {
+    const missing = mot.phases.find((p) => r.phases[p.id] === false);
+    const msg = missing ? `${missing.label} hat noch gefehlt.` : r.score !== null && r.score >= 0.8 ? 'Sauber ausgeführt.' : null;
+    if (msg) setTimeout(() => S?.speaker.say(msg), 60);
+  }
+  S.tracker = null;
+}
+
+function renderMotionPhases(mot) {
+  const t = S.tracker, step = S.runner?.step;
+  const working = step?.kind === 'work' && t;
+  const last = !working && step?.idx !== undefined ? S.items[step.idx]?.repResults.at(-1) : null;
+  $('#motion-phases').innerHTML = mot.phases.map((p, i) => {
+    let cls = '';
+    if (working) {
+      if (t.reached[p.id]) cls = 'done';
+      else if (mot.kind === 'cycle' ? t.seq === i : t.live[p.id] === false) cls = 'live';
+      if (!t.measurable[p.id] && t.evalMs + (performance.now() - t.t0) > 4000) cls += ' na';
+    } else if (last) {
+      cls = last.phases[p.id] === true ? 'done' : last.phases[p.id] === false ? 'miss' : 'na';
+    }
+    return `<li class="${cls}">${esc(p.label)}</li>`;
+  }).join('') + (working && mot.kind === 'cycle' ? `<li class="na">Durchgänge: ${t.cycles}${t.item ? ' / ~' + Math.max(1, Math.floor(t.item.hold / (mot.cycleSec || 4))) : ''}</li>` : '');
+}
+
+function renderRepDots(idx) {
+  const it = S.items[idx]; if (!it) return;
+  const total = it.reps * it.sides;
+  const dots = Array.from({ length: total }, (_, i) => {
+    const r = it.repResults[i];
+    const c = !r || r.score === null ? '' : r.score >= 0.8 ? 'g' : r.score >= 0.6 ? 'y' : 'r';
+    return `<i class="${c}" title="${r?.score != null ? Math.round(r.score * 100) + ' %' : ''}"></i>`;
+  }).join('');
+  $('#motion-reps').innerHTML = `<span>Wdh.</span>${dots}`;
 }
 
 function showCue(text) {
@@ -571,6 +689,8 @@ function snapshot(reason) {
     image: c.toDataURL('image/jpeg', 0.6),
   });
 }
+
+$('#b-ready').addEventListener('click', () => { if (S?.runner?.confirm('tap')) $('#readybar').hidden = true; });
 
 $('#c-pause').addEventListener('click', () => {
   if (!S?.runner) return;
@@ -607,9 +727,10 @@ function finishSession(completed) {
   if (!S || S.finished) return;
   S.finished = true;
   const step = S.runner?.step;
-  if (step?.kind === 'work') S.items[step.idx].workSec += Math.min(step.duration, S.lastWorkEl || 0);
+  if (step?.kind === 'work') { S.items[step.idx].workSec += Math.min(step.duration, S.lastWorkEl || 0); finalizeRep(step, null); }
   if (step?.kind === 'check') finishPostureCheck();
   S.runner?.stop();
+  S.stopPrepAnim?.(); S.stopMiniAnim?.(); S.miniFor = null;
   if (completed) S.speaker.say('Geschafft. Gut gemacht!');
   cancelAnimationFrame(S.raf);
   S.stream?.getTracks().forEach((t) => t.stop());
@@ -622,7 +743,11 @@ function finishSession(completed) {
 
   const exercises = S.items.map((it) => {
     const planned = it.reps * it.hold * it.sides;
-    const score = it.scored ? Math.round((it.scoreSum / it.scored) * 1000) / 1000 : null;
+    const postureScore = it.scored ? Math.round((it.scoreSum / it.scored) * 1000) / 1000 : null;
+    const rs = it.repResults.map((r) => r.score).filter((v) => v !== null);
+    const score = rs.length ? Math.round((rs.reduce((a, b) => a + b, 0) / rs.length) * 1000) / 1000 : postureScore;
+    const ps = it.repResults.map((r) => r.phaseScore).filter((v) => v !== null);
+    const phaseScore = ps.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 1000) / 1000 : null;
     const badRatio = {};
     for (const [k, n] of Object.entries(it.badFrames)) badRatio[k] = Math.round((n / Math.max(1, it.frames)) * 1000) / 1000;
     const mean = {};
@@ -632,18 +757,24 @@ function finishSession(completed) {
       reps: it.reps, hold: it.hold, rest: it.rest, sides: it.sides,
       workSec: Math.round(it.workSec), plannedWorkSec: planned,
       skipped: it.workSec < planned * 0.5, skippedByUser: !!it.skippedByUser,
-      score, inFrame: it.frames ? Math.round((it.inFrame / it.frames) * 1000) / 1000 : null,
+      score, postureScore, phaseScore, repResults: it.repResults.map(({ exercise_id, exercise_idx, ...r }) => r),
+      inFrame: it.frames ? Math.round((it.inFrame / it.frames) * 1000) / 1000 : null,
       checks: byId[it.id].checks, cues: it.cues, badRatio, mean, flags: it.flags,
     };
   });
+  const allReps = S.repRows.map((r) => r.score).filter((v) => v !== null);
   const scored = S.items.filter((i) => i.scored);
   const totalScored = scored.reduce((s, i) => s + i.scored, 0);
+  const postureAvg = totalScored ? Math.round((scored.reduce((s, i) => s + i.scoreSum, 0) / totalScored) * 1000) / 1000 : null;
   S.summary = {
     durationSec: Math.round((S.endedAt - S.startedAt) / 1000),
     plannedSec: S.plan.seconds,
     exercisesDone: exercises.filter((e) => !e.skipped).length,
     exercisesPlanned: exercises.length,
-    avgScore: totalScored ? Math.round((scored.reduce((s, i) => s + i.scoreSum, 0) / totalScored) * 1000) / 1000 : null,
+    avgScore: allReps.length ? Math.round((allReps.reduce((a, b) => a + b, 0) / allReps.length) * 1000) / 1000 : postureAvg,
+    postureScore: postureAvg,
+    repsTotal: S.repRows.length,
+    repsGood: S.repRows.filter((r) => r.score !== null && r.score >= 0.8).length,
     cues: exercises.reduce((s, e) => s + e.cues, 0),
     flags: exercises.reduce((s, e) => s + e.flags, 0),
     fps: S.fps.value,
@@ -699,7 +830,7 @@ $('#b-co-save').addEventListener('click', async () => {
     exercises: S.exercises, posture_check: S.postureCheck || null,
     checkin: S.checkin, checkout, summary: S.summary,
   };
-  const record = { session, samples: S.samples, dev: S.dev, snapshots: S.snapshots };
+  const record = { session, samples: S.samples, dev: S.dev, snapshots: S.snapshots, reps: S.repRows };
   setMsg('#co-msg', 'Wird gespeichert …');
   try {
     const r = await store.saveRecord(record);
@@ -730,7 +861,7 @@ function renderSettings() {
   }));
   $('#s-tol').value = settings.tolerance; $('#s-ref').value = settings.reference;
   $('#s-goal').value = Math.round(settings.correctionGoal * 100); $('#s-goal-o').textContent = `${$('#s-goal').value} %`;
-  $('#s-check').checked = settings.postureCheck !== false; $('#s-swap').checked = !!settings.swapSides;
+  $('#s-check').checked = settings.postureCheck !== false; $('#s-confirm').checked = settings.confirmEach !== false; $('#s-swap').checked = !!settings.swapSides;
   $('#s-rate').value = settings.speechRate; $('#s-rate-o').textContent = String(settings.speechRate).replace('.', ',');
   $('#s-pvoice').checked = settings.postureVoice !== false; $('#s-camvoice').checked = settings.speakCamera !== false;
   $('#s-cam').value = settings.camera; $('#s-model').value = settings.model; $('#s-floor').checked = settings.floorAtNoon !== false;
@@ -770,6 +901,7 @@ bind('#s-tol', (e) => { settings.tolerance = e.target.value; persist(); });
 bind('#s-ref', (e) => { settings.reference = e.target.value; persist(); });
 bind('#s-goal', (e) => { settings.correctionGoal = +e.target.value / 100; $('#s-goal-o').textContent = `${e.target.value} %`; persist(); }, 'input');
 bind('#s-check', (e) => { settings.postureCheck = e.target.checked; persist(); });
+bind('#s-confirm', (e) => { settings.confirmEach = e.target.checked; persist(); });
 bind('#s-swap', (e) => { settings.swapSides = e.target.checked; persist(); });
 bind('#s-voice', (e) => { settings.voiceName = e.target.value; persist(); });
 bind('#s-engine', async (e) => {

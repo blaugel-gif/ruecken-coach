@@ -100,7 +100,7 @@ export class Store {
     }
   }
 
-  async pushRecord({ session, samples, dev, snapshots }) {
+  async pushRecord({ session, samples, dev, snapshots, reps }) {
     const c = this.client;
     let { error } = await c.from('sessions').upsert({ ...session, user_id: this.user.id });
     if (error) throw error;
@@ -111,6 +111,12 @@ export class Store {
     if (dev) {
       ({ error } = await c.from('dev_logs').upsert({ session_id: session.id, user_id: this.user.id, env: dev.env, events: dev.events, notes: dev.notes }));
       if (error) throw error;
+    }
+    if (reps?.length) {
+      // Ergebnisse je Wiederholung (eigene Tabelle; fehlt sie noch, bleiben sie in sessions.exercises erhalten)
+      const rows = reps.map((r) => ({ session_id: session.id, user_id: this.user.id, exercise_id: r.exercise_id, exercise_idx: r.exercise_idx, rep: r.rep, side: r.side, started_ms: r.started_ms, duration_ms: r.duration_ms, kind: r.kind, phases: r.phases, cycles: r.cycles, expected_cycles: r.expectedCycles, hold_ratio: r.holdRatio, reach_ms: r.reachMs, phase_score: r.phaseScore, posture_score: r.postureScore, score: r.score }));
+      const { error: repErr } = await c.from('rep_results').insert(rows);
+      if (repErr && !/rep_results|does not exist|schema cache/i.test(repErr.message)) throw repErr;
     }
     for (const snap of snapshots || []) {
       ({ error } = await c.from('dev_snapshots').insert({ ...snap, session_id: session.id, user_id: this.user.id }));

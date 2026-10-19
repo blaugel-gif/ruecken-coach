@@ -1,8 +1,9 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js?v=202610191042';
-import { cameraText } from './camera-svg.js?v=202610191042';
-import { CHECKS } from './pose.js?v=202610191042';
-import * as neural from './neuralvoice.js?v=202610191042';
+import { byId } from './exercises.js?v=202610191548';
+import { cameraText } from './camera-svg.js?v=202610191548';
+import { MOTIONS } from './motion.js?v=202610191548';
+import { CHECKS } from './pose.js?v=202610191548';
+import * as neural from './neuralvoice.js?v=202610191548';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
@@ -195,18 +196,25 @@ export function scriptTexts(plan, settings) {
     if (st.kind === 'prep' && i > 0) add(`Danach: ${byId[st.item.id].name}.`);
     if (st.kind === 'prep' && i === 1) add('Deine Ausgangshaltung ist jetzt als Referenz gespeichert.');
   });
-  ['Noch zehn Sekunden.', 'Gleich geht es weiter.', 'Gut so.', 'Ich sehe dich nicht. Bitte ganz ins Bild.',
+  for (const it of plan.items) {
+    const ex = byId[it.id]; const lead = FLOOR_POS.has(ex.pos) ? 8 : 5;
+    add(FLOOR_POS.has(ex.pos) ? `Gut. Position einnehmen, in ${num(lead)} Sekunden geht es los.` : `Gut. In ${num(lead)} Sekunden geht es los.`);
+  }
+  for (const it of plan.items) for (const ph of MOTIONS[it.id]?.phases || []) add(`${ph.label} hat noch gefehlt.`);
+  add('Sauber ausgeführt.');
+  ['Ich warte. Tippe auf Bereit oder heb beide Arme über den Kopf.', 'Noch zehn Sekunden.', 'Gleich geht es weiter.', 'Gut so.', 'Ich sehe dich nicht. Bitte ganz ins Bild.',
     'Pause. Tippe auf Weiter, wenn du bereit bist.', 'Weiter.', '10 Sekunden mehr.'].forEach(add);
   for (const c of Object.values(CHECKS)) { add(c.cueHigh); add(c.cueLow); }
   return out;
 }
 
+const FLOOR_POS = new Set(['supine', 'prone', 'quad', 'kneel', 'floorsit']);
 // Ablauf in Schritte zerlegen
 export function buildTimeline(plan, opts) {
   const steps = [];
   if (opts.postureCheck) steps.push({ kind: 'check', duration: 12, label: 'Haltungs-Check' });
   plan.items.forEach((it, idx) => {
-    steps.push({ kind: 'prep', duration: opts.prep, item: it, idx });
+    steps.push({ kind: 'prep', duration: opts.confirm ? Infinity : opts.prep, waiting: !!opts.confirm, item: it, idx });
     for (let side = 0; side < it.sides; side++) {
       if (side > 0) steps.push({ kind: 'switch', duration: 5, item: it, idx, side });
       for (let rep = 0; rep < it.reps; rep++) {
@@ -229,7 +237,7 @@ export class SessionRunner {
     this.plan = plan;
     this.settings = settings;
     this.speaker = speaker;
-    this.steps = buildTimeline(plan, { prep: settings.prep, postureCheck: settings.postureCheck !== false });
+    this.steps = buildTimeline(plan, { prep: settings.prep, postureCheck: settings.postureCheck !== false, confirm: settings.confirmEach !== false });
     this.i = -1;
     this.onStep = onStep; this.onTick = onTick; this.onFinish = onFinish; this.log = log || (() => {});
     this.paused = false;
@@ -258,6 +266,19 @@ export class SessionRunner {
     this.i = j - 1;
     this.speaker.stop();
     this.next(true);
+  }
+  // Bestätigung „Bereit“ (Knopf oder Arme über den Kopf)
+  confirm(source = 'tap') {
+    const s = this.step;
+    if (!s || s.kind !== 'prep' || !s.waiting) return false;
+    s.waiting = false;
+    const ex = byId[s.item.id];
+    const lead = FLOOR_POS.has(ex.pos) ? 8 : 5;
+    s.duration = this.elapsedInStep() + lead;
+    this.spokenMarks = new Set();
+    this.log('confirm', { ex: s.item.id, source });
+    this.speaker.say(FLOOR_POS.has(ex.pos) ? `Gut. Position einnehmen, in ${num(lead)} Sekunden geht es los.` : `Gut. In ${num(lead)} Sekunden geht es los.`, { interrupt: true });
+    return true;
   }
   extendRest(sec = 10) { if (this.step && (this.step.kind === 'rest' || this.step.kind === 'prep')) { this.step.duration += sec; this.speaker.say(`${sec} Sekunden mehr.`); } }
 
@@ -288,6 +309,7 @@ export class SessionRunner {
       sp.say(`${nr}: ${ex.name}. ${reps}${side}, ${what}${pause}.`, { interrupt: true });
       if (this.settings.speakCamera !== false) sp.say(ex.view === 'front' ? `Kamera frontal, ${ex.cam.height}.` : `Kamera seitlich, ${ex.cam.height}.`);
       sp.say(ex.cue);
+      if (s.waiting) sp.say('Schau dir die Animation an. Wenn du bereit bist, tippe auf Bereit oder heb beide Arme über den Kopf.');
     } else if (s.kind === 'work') {
       sp.beep(1046, 180);
       const repTxt = it.reps > 1 ? `${num(s.rep + 1)} von ${num(it.reps)}. ` : '';
@@ -311,6 +333,12 @@ export class SessionRunner {
     const left = Math.ceil(s.duration - el);
     this.onTick?.(s, el, left);
     const mark = (k, fn) => { if (!this.spokenMarks.has(k)) { this.spokenMarks.add(k); fn(); } };
+    if (s.kind === 'prep' && s.waiting) {
+      const n = Math.floor(el / 35);
+      if (n >= 1) mark('remind' + n, () => { if (!this.speaker.busy) this.speaker.say('Ich warte. Tippe auf Bereit oder heb beide Arme über den Kopf.'); });
+      return;
+    }
+    if (s.kind === 'work' && s.rep === 0 && s.duration >= 16 && el >= 6) mark('cue', () => { if (!this.speaker.busy) this.speaker.say(byId[s.item.id].cue); });
     if (s.kind === 'work' && s.duration >= 20 && left === 10) mark('10', () => { if (!this.speaker.busy) this.speaker.say('Noch zehn Sekunden.'); });
     if (s.kind === 'rest' && left === 3) {
       const nxt = this.steps[this.i + 1];
