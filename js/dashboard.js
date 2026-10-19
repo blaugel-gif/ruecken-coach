@@ -1,7 +1,7 @@
 // Dashboard: Kennzahlen und Verläufe aus den gespeicherten Einheiten
-import { byId } from './exercises.js?v=202610191918';
-import { CHECKS } from './pose.js?v=202610191918';
-import { computeBalance, agoText, WINDOW_MIN } from './balance.js?v=202610191918';
+import { byId } from './exercises.js?v=202610192125';
+import { CHECKS } from './pose.js?v=202610192125';
+import { computeBalance, agoText, WINDOW_MIN } from './balance.js?v=202610192125';
 
 const DAY = 864e5;
 const dkey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };

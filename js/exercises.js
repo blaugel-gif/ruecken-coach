@@ -323,6 +323,52 @@ for (const e of EXERCISES) e.muscles = MUSCLE_MAP[e.id] || [];
 // Varianten derselben Übung nicht zusammen in eine Runde legen
 const FAMILY = { kniebeugen: 'squat', kniebeugen_stuhl: 'squat', liegestuetz_wand: 'pushup', liegestuetz_knie: 'pushup', hueftbeuger_halbknie: 'hipflex', hueftbeuger_stand: 'hipflex', piriformis_ruecken: 'glute', piriformis_sitz: 'glute', stufenlagerung: 'stufe', stufenlagerung_wand: 'stufe', hueftkreisen: 'pelvis', ball_beckenkreisen: 'pelvis', beckenbalance: 'pelvis' };
 for (const e of EXERCISES) e.family = FAMILY[e.id] || e.id;
+// Was man spüren sollte
+const FEEL = {
+ "marschieren": "Du wirst warm in Hüftbeugern und Oberschenkeln, die Schultern bleiben locker.",
+ "hueftkreisen": "Du spürst Lockerung im unteren Rücken und rund um die Hüftgelenke.",
+ "beckenbalance": "Der untere Rücken bewegt sich, Bauch und Rückenstrecker arbeiten im Wechsel.",
+ "schulterkreisen": "Wärme und Lockerung im Nacken und zwischen den Schulterblättern.",
+ "katze_kuh": "Die ganze Wirbelsäule bewegt sich, Dehnung abwechselnd im Rücken und vorne am Bauch.",
+ "nadel_einfaedeln": "Drehung und Dehnung in der Brustwirbelsäule und hinten an der Schulter.",
+ "wandengel": "Die Muskeln zwischen den Schulterblättern arbeiten, vorne an der Brust dehnt es.",
+ "kinn_einziehen": "Die tiefen Nackenmuskeln vorne arbeiten, oben im Nacken dehnt es leicht.",
+ "bws_stuhllehne": "Streckung im mittleren Rücken und Dehnung vorne an der Brust.",
+ "rolle_laengs": "Die Brustmuskeln dehnen sich, der obere Rücken wird entlastet.",
+ "ball_beckenkreisen": "Lockerung im unteren Rücken und in den Hüften, der Bauch hält das Gleichgewicht.",
+ "hueftbeuger_halbknie": "Dehnung vorne in der Leiste und am Oberschenkel des hinteren Beins, das Gesäß ist angespannt.",
+ "hueftbeuger_stand": "Dehnung vorne in der Leiste des hinteren Beins, das Gesäß ist angespannt.",
+ "neunzig_neunzig": "Dehnung tief im Gesäß des vorderen Beins und an der Hüftinnenseite des hinteren.",
+ "piriformis_ruecken": "Dehnung tief im Gesäß des aufgelegten Beins.",
+ "piriformis_sitz": "Dehnung im Gesäß und an der Hüftaußenseite.",
+ "beckenheben": "Das Gesäß arbeitet, dazu hinten die Oberschenkel. Nicht im unteren Rücken.",
+ "hueftbeugen_stab": "Dehnung hinten in den Oberschenkeln, der Rücken bleibt lang und ruhig.",
+ "knie_brust": "Sanfte Dehnung im unteren Rücken und im Gesäß.",
+ "schmetterling": "Dehnung an den Innenseiten der Oberschenkel.",
+ "hueftrotation_stand": "Das Hüftgelenk bewegt sich, Standbein und Gesäß halten dich stabil.",
+ "vierfuessler_diagonal": "Rückenstrecker, Gesäß und Schulter arbeiten, der Bauch hält das Becken gerade.",
+ "dead_bug": "Die tiefe Bauchmuskulatur arbeitet, der untere Rücken bleibt am Boden.",
+ "grundspannung_sitz": "Bauch, Gesäß und Rückenstrecker spannen leicht an, der Rücken wird lang.",
+ "aufrichtung_stand": "Bauch, Gesäß und Rückenstrecker spannen leicht an, der Rücken wird lang.",
+ "nacken_druck": "Die Nackenmuskeln arbeiten, ohne dass sich der Kopf bewegt.",
+ "arme_seit_kreise": "Die Schultern werden warm und arbeiten, die Schulterblätter bleiben unten.",
+ "hampelmann_sitz": "Arbeit in den Schultern und zwischen den Schulterblättern.",
+ "band_zug": "Arbeit zwischen den Schulterblättern und hinten an den Schultern.",
+ "band_kopf": "Oberer Rücken und Schultern arbeiten, die Brust öffnet sich.",
+ "hantel_u": "Schultern und oberer Rücken arbeiten, die Arme tragen das Gewicht.",
+ "bauchlage_schwimmen": "Die Rückenstrecker und die Muskeln zwischen den Schulterblättern arbeiten.",
+ "bauchlage_spannung": "Rückenstrecker, Gesäß und Bauch arbeiten zugleich, der Körper wird lang.",
+ "ball_beinheben": "Bauch und seitliche Rumpfmuskeln halten dich gerade.",
+ "stufenlagerung_wand": "Beim Drücken leichte Spannung in Bauch und Rücken, danach Entspannung.",
+ "stufenlagerung": "Der untere Rücken entspannt und sinkt in den Boden.",
+ "kindhaltung": "Sanfte Dehnung im ganzen Rücken, besonders unten.",
+ "flankenatmung": "Die Rippen weiten sich unter den Händen, seitlich am Rumpf dehnt es.",
+ "kniebeugen": "Vorne die Oberschenkel und das Gesäß arbeiten, der Bauch hält den Rücken gerade.",
+ "kniebeugen_stuhl": "Vorne die Oberschenkel und das Gesäß arbeiten.",
+ "liegestuetz_wand": "Brust, Schultern und die Rückseite der Oberarme arbeiten, der Bauch hält dich gerade.",
+ "liegestuetz_knie": "Brust, Schultern und die Rückseite der Oberarme arbeiten, der Bauch hält dich gerade."
+};
+for (const e of EXERCISES) e.feel = FEEL[e.id] || '';
 
 export const byId = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
 

@@ -1,6 +1,6 @@
 // Muskelgruppen-Bilanz: Wie viel Trainingszeit ging zuletzt an welche Muskelgruppe?
 // Grundlage sind die letzten WINDOW_MIN Minuten tatsächlicher Übungszeit (über mehrere Einheiten).
-import { EXERCISES, MUSCLES, byId } from './exercises.js?v=202610191918';
+import { EXERCISES, MUSCLES, byId } from './exercises.js?v=202610192125';
 
 export const WINDOW_MIN = 45;
 const DAY = 864e5;

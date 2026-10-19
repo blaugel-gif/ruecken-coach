@@ -28,7 +28,7 @@ export async function loadPoseModel(quality = 'lite', log = () => {}) {
   const fileset = await vision.FilesetResolver.forVisionTasks(`${MP_BASE}/wasm`);
   const opts = (delegate) => ({
     baseOptions: { modelAssetPath: MODELS[quality] || MODELS.lite, delegate },
-    runningMode: 'VIDEO', numPoses: 3,
+    runningMode: 'VIDEO', numPoses: 2,
     minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5, minTrackingConfidence: 0.5,
   });
   try {
@@ -64,11 +64,14 @@ export function pickPose(list, prevCenter) {
     const vis = lm.reduce((a, p) => a + (p.visibility ?? 1), 0) / lm.length;
     const cx = (lm[23].x + lm[24].x) / 2, cy = (lm[23].y + lm[24].y) / 2;
     const near = prevCenter ? Math.hypot(cx - prevCenter[0], cy - prevCenter[1]) : 0;
-    const sc = area * 2 + vis - near * 1.5;
+    // einmal erfasst, bleibt die App bei derselben Person (Nähe zählt stark)
+    const sc = prevCenter ? (near < 0.12 ? 10 : 0) + area - near * 8 + vis * 0.2 : area * 2 + vis;
     if (sc > bestScore) { bestScore = sc; best = i; }
   });
   const lm = best >= 0 ? list[best] : null;
-  return { lm, idx: best, n: list.length, center: lm ? [(lm[23].x + lm[24].x) / 2, (lm[23].y + lm[24].y) / 2] : prevCenter };
+  const center = lm ? [(lm[23].x + lm[24].x) / 2, (lm[23].y + lm[24].y) / 2] : prevCenter;
+  const jumped = !!(prevCenter && lm && Math.hypot(center[0] - prevCenter[0], center[1] - prevCenter[1]) > 0.15);
+  return { lm, idx: best, n: list.length, center, jumped };
 }
 
 export function toPoints(lm, W, H, swap = false) {
@@ -147,7 +150,7 @@ export function computeMetrics(P) {
     if (Math.abs(P[el].y - P[sh].y) < 0.28 * torsoF) elAtSh++;
     if (P[wr].y < P[el].y - 0.15 * torsoF) wrAboveEl++;
     if (P[wr].y < P[sh].y && dist(P[wr], P[ear]) < 0.75 * sw) behind++;
-    if (ok(hp) && P[wr].y > P[sh].y + 0.25 * torsoF && P[wr].y < P[hp].y + 0.1 * torsoF && Math.abs(P[wr].x - P[sh].x) < 0.55 * sw) ribs++;
+    if (ok(hp) && P[wr].y > P[sh].y + 0.15 * torsoF && P[wr].y < P[hp].y + 0.2 * torsoF && Math.abs(P[wr].x - P[sh].x) < 0.7 * sw) ribs++;
   }
   m.wristsAboveHead = armsSeen ? above : null;
   m.wristsAtShoulder = armsSeen ? atSh : null;

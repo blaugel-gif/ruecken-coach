@@ -159,11 +159,11 @@ export const MOTIONS = {
   ] },
   hueftbeuger_halbknie: { view: 'side', kind: 'hold', base: S('kneel'), props: ['mat'], phases: [
     { id: 'auf', label: 'Oberkörper aufrecht', key: { trunk: 0 }, test: absLt('trunkLean', 10) },
-    { id: 'vor', label: 'Becken nach vorn schieben', key: { hip: [108, 148], lU: 80, lL: 195, lU2: 205, lL2: 270 }, test: gt('hipAngleMax', 168) },
+    { id: 'vor', label: 'Becken nach vorn schieben', key: { hip: [108, 148], lU: 80, lL: 195, lU2: 205, lL2: 270 }, test: gt('hipAngleMax', 162) },
   ] },
   hueftbeuger_stand: { view: 'side', kind: 'hold', base: S('stand', { hip: [100, 120], lU: 145, lL: 180, lU2: 215, lL2: 215 }), phases: [
     { id: 'auf', label: 'Oberkörper aufrecht', key: { trunk: 0 }, test: absLt('trunkLean', 10) },
-    { id: 'vor', label: 'Becken nach vorn schieben', key: { hip: [106, 122], lU: 135, lL: 180, lU2: 222, lL2: 222 }, test: gt('hipAngleMax', 170) },
+    { id: 'vor', label: 'Becken nach vorn schieben', key: { hip: [106, 122], lU: 135, lL: 180, lU2: 222, lL2: 222 }, test: gt('hipAngleMax', 163) },
   ] },
   neunzig_neunzig: { view: 'front', kind: 'hold', base: F('floorsit', { lLU: 90, lLL: 180, rLU: 100, rLL: 20 }), props: ['mat'], phases: [
     { id: 'sitz', label: 'Am Boden, Beine 90/90', key: {}, test: lt('hipToAnkleY', 0.45) },
@@ -257,16 +257,16 @@ export const MOTIONS = {
     { id: 'sink', label: 'Gesäß zu den Fersen, Arme lang', key: { hip: [72, 164], trunk: 100, head: 110, aU: 95, aF: 90, aU2: 95, aF2: 90, lU: 117, lL: 270, lU2: 117, lL2: 270 }, test: lt('hipAngleMin', 70) },
   ] },
   flankenatmung: { view: 'front', kind: 'hold', base: F('stand', { lAU: 25, lAF: 160, rAU: 25, rAF: 160 }), phases: [
-    { id: 'haende', label: 'Hände an die Rippen', key: {}, test: gt('wristsAtRibs', 1.5) },
+    { id: 'haende', label: 'Hände an die Rippen', key: {}, test: gt('wristsAtRibs', 0.5) },
     { id: 'lang', label: 'In die Flanken atmen, lang bleiben', key: { hip: [100, 111] }, test: absLt('shoulderTilt', 4) },
   ] },
   kniebeugen: { view: 'front', kind: 'cycle', cycleSec: 3.5, base: F('stand'), phases: [
-    { id: 'tief', label: 'Gesäß nach hinten unten', key: { hip: [100, 140], lLs: 0.45, rLs: 0.45, lLU: 14, rLU: 14, lLL: 2, rLL: 2, lAU: 70, rAU: 70, lAF: 80, rAF: 80, lAs: 0.5, rAs: 0.5 }, test: relGt('hipY', 0.18) },
-    { id: 'hoch', label: 'Wieder aufrichten', key: {}, test: (m, b) => (has(m.hipY) && has(b?.hipY) ? m.hipY < b.hipY + 0.06 : null) },
+    { id: 'tief', label: 'Gesäß nach hinten unten', key: { hip: [100, 140], lLs: 0.45, rLs: 0.45, lLU: 14, rLU: 14, lLL: 2, rLL: 2, lAU: 70, rAU: 70, lAF: 80, rAF: 80, lAs: 0.5, rAs: 0.5 }, test: (m, b) => (has(m.hipY) && has(b?.hipYMin) ? m.hipY > b.hipYMin + 0.18 : null) },
+    { id: 'hoch', label: 'Wieder aufrichten', key: {}, test: (m, b) => (has(m.hipY) && has(b?.hipYMin) ? m.hipY < b.hipYMin + 0.07 : null) },
   ] },
   kniebeugen_stuhl: { view: 'front', kind: 'cycle', cycleSec: 4, base: F('stand'), props: ['chair'], phases: [
-    { id: 'tief', label: 'Langsam zum Stuhl', key: { hip: [100, 140], lLs: 0.35, rLs: 0.35, lLU: 12, rLU: 12, lLL: 2, rLL: 2, lAU: 70, rAU: 70, lAF: 80, rAF: 80, lAs: 0.5, rAs: 0.5 }, test: relGt('hipY', 0.2) },
-    { id: 'hoch', label: 'Gleichmäßig aufstehen', key: {}, test: (m, b) => (has(m.hipY) && has(b?.hipY) ? m.hipY < b.hipY + 0.06 : null) },
+    { id: 'tief', label: 'Langsam zum Stuhl', key: { hip: [100, 140], lLs: 0.35, rLs: 0.35, lLU: 12, rLU: 12, lLL: 2, rLL: 2, lAU: 70, rAU: 70, lAF: 80, rAF: 80, lAs: 0.5, rAs: 0.5 }, test: (m, b) => (has(m.hipY) && has(b?.hipYMin) ? m.hipY > b.hipYMin + 0.2 : null) },
+    { id: 'hoch', label: 'Gleichmäßig aufstehen', key: {}, test: (m, b) => (has(m.hipY) && has(b?.hipYMin) ? m.hipY < b.hipYMin + 0.07 : null) },
   ] },
   liegestuetz_wand: { view: 'side', kind: 'cycle', cycleSec: 3, base: S('stand', { hip: [92, 114], trunk: 22, head: 22, aU: 85, aF: 90, aU2: 85, aF2: 90, lU: 200, lL: 200, lU2: 200, lL2: 200 }), props: ['wall'], phases: [
     { id: 'beug', label: 'Arme beugen, Brust zur Wand', key: { hip: [102, 112], trunk: 28, head: 28, aU: 140, aF: 50, aU2: 140, aF2: 50 }, test: lt('elbowAngleMin', 115) },
@@ -333,6 +333,7 @@ export class MotionTracker {
     this.measurable = Object.fromEntries(this.motion.phases.map((p) => [p.id, false]));
     this.seq = 0; this.cycles = 0; this.holdMs = 0; this.evalMs = 0; this.last = now;
     this.firstReachMs = null;
+    this.trueSince = {}; this.lastCycleAt = now; this.hipYMin = null; this.seqChanged = false;
   }
   update(m, now) {
     const dt = Math.min(250, now - this.last); this.last = now;
@@ -348,18 +349,27 @@ export class MotionTracker {
         }
       }
     }
+    // Stehhöhe: kleinster Beckenwert der Wiederholung (robust, auch wenn man schon in Bewegung startet)
+    if (has(m.hipY)) this.hipYMin = this.hipYMin === null ? m.hipY : Math.min(this.hipYMin + 0.0004 * dt / 16, m.hipY);
+    const b = { ...(this.base || {}), hipYMin: this.hipYMin };
     const res = {};
     for (const p of this.motion.phases) {
-      const v = p.test ? p.test(m, this.base) : null;
+      const raw = p.test ? p.test(m, b) : null;
+      // Entprellen: eine Phase gilt erst, wenn sie 250 ms stabil erkannt wird
+      if (raw === true) this.trueSince[p.id] ??= now; else delete this.trueSince[p.id];
+      const v = raw === true ? now - this.trueSince[p.id] >= 250 : raw;
       res[p.id] = v; this.live[p.id] = v;
-      if (v !== null) this.measurable[p.id] = true;
+      if (raw !== null) this.measurable[p.id] = true;
     }
+    this.seqChanged = false;
     if (this.motion.kind === 'cycle') {
       const ph = this.motion.phases[this.seq];
-      if (res[ph.id] === true) {
+      const minCycle = (this.motion.cycleSec || 4) * 400; // ein Durchgang nicht schneller als 40 % der Sollzeit
+      const isLast = this.seq === this.motion.phases.length - 1;
+      if (res[ph.id] === true && (!isLast || now - this.lastCycleAt >= minCycle)) {
         this.reached[ph.id] = true;
-        this.seq++;
-        if (this.seq >= this.motion.phases.length) { this.cycles++; this.seq = 0; }
+        this.seq++; this.seqChanged = true;
+        if (this.seq >= this.motion.phases.length) { this.cycles++; this.seq = 0; this.lastCycleAt = now; }
       }
       // Phasen außer der Reihe zählen als erreicht, aber nicht als Zyklus
       for (const p of this.motion.phases) if (res[p.id] === true) this.reached[p.id] = true;

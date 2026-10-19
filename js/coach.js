@@ -1,9 +1,9 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js?v=202610191918';
-import { cameraText } from './camera-svg.js?v=202610191918';
-import { MOTIONS } from './motion.js?v=202610191918';
-import { CHECKS } from './pose.js?v=202610191918';
-import * as neural from './neuralvoice.js?v=202610191918';
+import { byId } from './exercises.js?v=202610192125';
+import { cameraText } from './camera-svg.js?v=202610192125';
+import { MOTIONS } from './motion.js?v=202610192125';
+import { CHECKS } from './pose.js?v=202610192125';
+import * as neural from './neuralvoice.js?v=202610192125';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
@@ -202,6 +202,13 @@ export function scriptTexts(plan, settings) {
   }
   for (const it of plan.items) for (const ph of MOTIONS[it.id]?.phases || []) add(`${ph.label} hat noch gefehlt.`);
   add('Sauber ausgeführt.');
+  for (const it of plan.items) {
+    const ex = byId[it.id];
+    ex.steps.forEach(add); add(ex.feel); add(`Spüren: ${ex.feel}`);
+    for (const ph of MOTIONS[it.id]?.phases || []) add(`${ph.label}.`);
+  }
+  add('Ich sehe deine Füße nicht. Stell die Kamera etwas weiter weg oder tiefer, damit die Füße im Bild sind.');
+  add('Ich kann die Bewegung noch nicht erkennen. Bitte ganz ins Bild.');
   ['Ich warte. Tippe auf Bereit oder heb beide Arme über den Kopf.', 'Noch zehn Sekunden.', 'Gleich geht es weiter.', 'Gut so.', 'Ich sehe dich nicht. Bitte ganz ins Bild.',
     'Pause. Tippe auf Weiter, wenn du bereit bist.', 'Weiter.', '10 Sekunden mehr.'].forEach(add);
   for (const c of Object.values(CHECKS)) { add(c.cueHigh); add(c.cueLow); }
@@ -309,6 +316,7 @@ export class SessionRunner {
       sp.say(`${nr}: ${ex.name}. ${reps}${side}, ${what}${pause}.`, { interrupt: true });
       if (this.settings.speakCamera !== false) sp.say(ex.view === 'front' ? `Kamera frontal, ${ex.cam.height}.` : `Kamera seitlich, ${ex.cam.height}.`);
       sp.say(ex.cue);
+      if (ex.feel) sp.say(`Spüren: ${ex.feel}`);
       if (s.waiting) sp.say('Schau dir die Animation an. Wenn du bereit bist, tippe auf Bereit oder heb beide Arme über den Kopf.');
     } else if (s.kind === 'work') {
       sp.beep(1046, 180);

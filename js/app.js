@@ -1,14 +1,14 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610191918';
-import { suggestions, buildCustomPlan, MODES, defaultModeForHour } from './planner.js?v=202610191918';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191918';
-import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191918';
-import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191918';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191918';
-import { renderDashboard } from './dashboard.js?v=202610191918';
-import * as neural from './neuralvoice.js?v=202610191918';
-import { computeBalance, rankExercises, focusGroups, agoText, WINDOW_MIN } from './balance.js?v=202610191918';
-import { MUSCLES } from './exercises.js?v=202610191918';
-import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610191918';
+import { EQUIPMENT, byId } from './exercises.js?v=202610192125';
+import { suggestions, buildCustomPlan, MODES, defaultModeForHour } from './planner.js?v=202610192125';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610192125';
+import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610192125';
+import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610192125';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610192125';
+import { renderDashboard } from './dashboard.js?v=202610192125';
+import * as neural from './neuralvoice.js?v=202610192125';
+import { computeBalance, rankExercises, focusGroups, agoText, WINDOW_MIN } from './balance.js?v=202610192125';
+import { MUSCLES } from './exercises.js?v=202610192125';
+import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610192125';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -536,6 +536,7 @@ function onStep(step) {
     $('#prep-eyebrow').textContent = step.kind === 'check' ? 'Zum Start' : `Übung ${step.idx + 1} von ${total}`;
     $('#prep-name').textContent = ex.name;
     $('#prep-dose').textContent = step.kind === 'check' ? 'Ca. 12 Sekunden' : doseText(it);
+    $('#prep-feel').innerHTML = step.kind === 'check' || !ex.feel ? '' : `<strong>Spüren:</strong> ${esc(ex.feel)} <br><strong>Muskeln:</strong> ${esc((ex.muscles || []).map((g) => MUSCLES[g]).join(', '))}`;
     $('#prep-cam').innerHTML = cameraSetupSVG(ex);
     $('#prep-camtxt').textContent = cameraText(ex);
     $('#prep-steps').innerHTML = ex.steps.map((s) => `<li>${esc(s)}</li>`).join('');
@@ -586,6 +587,7 @@ function loop() {
   const pick = pickPose(res?.landmarks, S.prevCenter);
   const lm = pick.lm;
   if (lm) S.prevCenter = pick.center;
+  if (pick.jumped) { S.personJumps = (S.personJumps || 0) + 1; devLog('person_jump', { n: pick.n }); }
   if (pick.n > 1 && now - (S.lastMulti || 0) > 10000) { S.lastMulti = now; devLog('multi_person', { n: pick.n, chosen: pick.idx }); }
   S.P = lm ? toPoints(lm, cv.width, cv.height, settings.swapSides) : null;
   S.metrics = S.P ? computeMetrics(S.P) : null;
@@ -620,6 +622,7 @@ function loop() {
       S.tracker.update(S.metrics, now);
       if (now - (S.lastPhaseRender || 0) > 200) { S.lastPhaseRender = now; renderMotionPhases(S.tracker.motion); }
     }
+    guide(step, now);
     if (S.metrics) { st.inFrame++; S.lastSeen = now; }
     const sc = frameScore(S.results);
     if (sc !== null) { st.scored++; st.scoreSum += sc; S.repPosture.n++; S.repPosture.sum += sc; }
@@ -723,6 +726,7 @@ function renderFar(step, now) {
   let cls = 'info', txt = '';
   if (step.kind === 'work') {
     if (!S.metrics && now - S.lastSeen > 2000) { cls = 'warn'; txt = 'Ganz ins Bild'; }
+    else if (S.feetMissing) { cls = 'warn'; txt = 'Füße ins Bild'; }
     else {
       const bad = S.results.filter((r) => r.status === 'bad').sort((a, b) => b.badFor - a.badFor)[0];
       const warn = S.results.find((r) => r.status === 'warn');
@@ -746,6 +750,40 @@ function renderFar(step, now) {
   }
   if (st.textContent !== txt) st.textContent = txt;
   if (st.className !== `far-status ${cls}`) st.className = `far-status ${cls}`;
+}
+
+// Ansagen während der Übung: Bewegungsablauf, Körperhaltung, was man spüren sollte
+function guide(step, now) {
+  if (settings.formVoice === false || S.runner.paused) return;
+  const ex = byId[step.item.id], t = S.tracker, el = S.runner.elapsedInStep(now);
+  const sp = S.speaker;
+  S.guideFor ??= {};
+  const g = (S.guideFor[step.item.id] ??= { stepIdx: 1, feelSaid: false, feetWarned: false, last: 0 });
+  // Füße/Person nicht erkennbar → einmal pro Übung Hinweis
+  if (t && el > 4 && !g.feetWarned && Object.values(t.measurable).every((v) => !v)) {
+    g.feetWarned = true;
+    const feet = S.P && (S.P[27].v < 0.4 || S.P[28].v < 0.4);
+    S.feetMissing = feet;
+    devLog('not_measurable', { ex: step.item.id, feet });
+    sp.say(feet ? 'Ich sehe deine Füße nicht. Stell die Kamera etwas weiter weg oder tiefer, damit die Füße im Bild sind.' : 'Ich kann die Bewegung noch nicht erkennen. Bitte ganz ins Bild.');
+    return;
+  }
+  if (t && Object.values(t.measurable).some(Boolean)) S.feetMissing = false;
+  if (sp.busy || now - S.runner.lastCueAt < 3000 || el < 2.5) return;
+  // Bewegungsübungen: in den ersten zwei Durchgängen jeden Teilschritt im Takt ansagen
+  if (t && t.motion.kind === 'cycle' && t.seqChanged && t.cycles < 2) {
+    sp.say(`${t.motion.phases[t.seq].label}.`);
+    g.last = now; return;
+  }
+  // einmal pro Übung: was man spüren sollte (in der Mitte der ersten Wiederholung)
+  if (!g.feelSaid && step.rep === 0 && step.side === 0 && el > step.duration * 0.45 && ex.feel) {
+    g.feelSaid = true; sp.say(ex.feel); g.last = now; return;
+  }
+  // alle ~12 s ein Satz zur Ausführung (Arme, Beine, Haltung), reihum aus der Anleitung
+  if (now - g.last > 12000 && step.duration - el > 5 && ex.steps.length) {
+    sp.say(ex.steps[g.stepIdx % ex.steps.length]);
+    g.stepIdx++; g.last = now;
+  }
 }
 
 function finalizeRep(step, nextStep) {
@@ -920,6 +958,7 @@ function finishSession(completed) {
     cues: exercises.reduce((s, e) => s + e.cues, 0),
     flags: exercises.reduce((s, e) => s + e.flags, 0),
     fps: S.fps.value,
+    personJumps: S.personJumps || 0,
   };
   S.exercises = exercises;
   showCheckout();
@@ -1003,7 +1042,7 @@ function renderSettings() {
   $('#s-goal').value = Math.round(settings.correctionGoal * 100); $('#s-goal-o').textContent = `${$('#s-goal').value} %`;
   $('#s-check').checked = settings.postureCheck !== false; $('#s-confirm').checked = settings.confirmEach !== false; $('#s-swap').checked = !!settings.swapSides;
   $('#s-rate').value = settings.speechRate; $('#s-rate-o').textContent = String(settings.speechRate).replace('.', ',');
-  $('#s-pvoice').checked = settings.postureVoice !== false; $('#s-camvoice').checked = settings.speakCamera !== false;
+  $('#s-pvoice').checked = settings.postureVoice !== false; $('#s-camvoice').checked = settings.speakCamera !== false; $('#s-formvoice').checked = settings.formVoice !== false;
   $('#s-far').value = settings.farView || 'auto';
   $('#s-cam').value = settings.camera; $('#s-model').value = settings.model; $('#s-floor').checked = settings.floorAtNoon !== false;
   $('#s-int').value = settings.intensity; $('#s-int-o').textContent = `${Math.round(settings.intensity * 100)} %`;
@@ -1058,6 +1097,7 @@ bind('#b-neural-remove', async () => { await neural.uninstall(); settings.voiceE
 bind('#s-rate', (e) => { settings.speechRate = +e.target.value; $('#s-rate-o').textContent = e.target.value.replace('.', ','); persist(); }, 'input');
 bind('#s-pvoice', (e) => { settings.postureVoice = e.target.checked; persist(); });
 bind('#s-camvoice', (e) => { settings.speakCamera = e.target.checked; persist(); });
+bind('#s-formvoice', (e) => { settings.formVoice = e.target.checked; persist(); });
 bind('#s-cam', (e) => { settings.camera = e.target.value; persist(); });
 bind('#s-far', (e) => { settings.farView = e.target.value; persist(); });
 bind('#s-model', (e) => { settings.model = e.target.value; persist(); });
