@@ -1,6 +1,7 @@
-import { EXERCISES, exerciseDuration } from './exercises.js?v=202610191633';
+import { EXERCISES, exerciseDuration } from './exercises.js?v=202610191918';
 
 export const MODES = {
+  custom: { minutes: null, label: 'Eigene Auswahl', when: '', budget: null, prep: 10 },
   10: { minutes: 10, label: 'Basis', when: 'morgens', budget: 600, prep: 10 },
   5: { minutes: 5, label: 'Mittag', when: 'mittags', budget: 300, prep: 9 },
   3: { minutes: 3, label: 'Kurz', when: 'zwischendurch', budget: 180, prep: 8 },
@@ -72,9 +73,10 @@ export function buildPlan(opts) {
   const pool = EXERCISES.filter((e) => e.equip.every((q) => have.has(q)));
   const picked = [];
   for (const slot of variant.slots) {
-    let cands = pool.filter((e) => slotMatches(e, slot) && !picked.includes(e));
+    const fams = new Set(picked.map((e) => e.family));
+    let cands = pool.filter((e) => slotMatches(e, slot) && !picked.includes(e) && !fams.has(e.family));
     if (avoidFloor) cands = cands.filter((e) => !FLOOR.has(e.pos));
-    if (!cands.length) cands = pool.filter((e) => !picked.includes(e) && !(avoidFloor && FLOOR.has(e.pos)) && e.cat !== 'warmup' && e.cat !== 'relax');
+    if (!cands.length) cands = pool.filter((e) => !picked.includes(e) && !fams.has(e.family) && !(avoidFloor && FLOOR.has(e.pos)) && e.cat !== 'warmup' && e.cat !== 'relax');
     if (!cands.length) continue;
     const weights = cands.map((e) => {
       let w = 1;
@@ -82,6 +84,9 @@ export function buildPlan(opts) {
       if (d !== undefined) w *= d <= 0 ? 0.2 : d <= 1 ? 0.35 : d <= 2 ? 0.6 : 1;
       if (e.checks.length) w *= 1.3; // Live-Prüfung bevorzugen
       if (opts.mode !== 10 && FLOOR.has(e.pos)) w *= 0.5;
+      // Muskelgruppen-Bilanz: lange nicht trainierte Bereiche stark bevorzugen
+      const n = opts.need?.[e.id];
+      if (n !== undefined) w *= Math.pow(0.25 + 1.75 * n, 2);
       return w;
     });
     picked.push(weightedPick(rng, cands, weights));
@@ -122,10 +127,12 @@ export function buildPlan(opts) {
     if (!changed) break;
   }
 
+  const needs = items.map((it) => opts.need?.[it.id]).filter((v) => v !== undefined);
   return {
     mode: opts.mode,
     variant: opts.variant,
     variantName: variant.name,
+    needScore: needs.length ? needs.reduce((a, b) => a + b, 0) / needs.length : null,
     date: opts.date,
     reroll: opts.reroll || 0,
     items,
@@ -133,7 +140,7 @@ export function buildPlan(opts) {
   };
 }
 
-function dose(ex, intensity) {
+export function dose(ex, intensity) {
   const it = {
     id: ex.id, name: ex.name, cat: ex.cat, type: ex.type, view: ex.view, pos: ex.pos,
     reps: ex.reps, hold: ex.hold, rest: ex.rest, sides: ex.sides,
@@ -153,6 +160,19 @@ export function defaultModeForHour(h) {
   return 3;
 }
 
+// Drei Vorschläge, sortiert nach Bedarf (was am längsten nicht dran war, zuerst)
 export function suggestions(opts) {
-  return [0, 1, 2].map((v) => buildPlan({ ...opts, variant: v }));
+  const plans = [0, 1, 2].map((v) => buildPlan({ ...opts, variant: v }));
+  if (opts.need) plans.sort((a, b) => (b.needScore ?? 0) - (a.needScore ?? 0));
+  return plans;
+}
+
+// Eigene Auswahl aus dem Menü
+export function buildCustomPlan(ids, opts = {}) {
+  const items = ids.map((id) => EXERCISES.find((e) => e.id === id)).filter(Boolean).map((e) => dose(e, opts.intensity || 1));
+  const prep = 10;
+  return {
+    mode: 'custom', variant: 0, variantName: 'Eigene Auswahl', date: opts.date, reroll: 0, items,
+    seconds: items.reduce((s, it) => s + itemDuration(it, prep), 0),
+  };
 }

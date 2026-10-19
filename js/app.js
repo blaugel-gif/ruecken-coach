@@ -1,12 +1,14 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610191633';
-import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191633';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191633';
-import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191633';
-import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191633';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191633';
-import { renderDashboard } from './dashboard.js?v=202610191633';
-import * as neural from './neuralvoice.js?v=202610191633';
-import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610191633';
+import { EQUIPMENT, byId } from './exercises.js?v=202610191918';
+import { suggestions, buildCustomPlan, MODES, defaultModeForHour } from './planner.js?v=202610191918';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191918';
+import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191918';
+import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191918';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191918';
+import { renderDashboard } from './dashboard.js?v=202610191918';
+import * as neural from './neuralvoice.js?v=202610191918';
+import { computeBalance, rankExercises, focusGroups, agoText, WINDOW_MIN } from './balance.js?v=202610191918';
+import { MUSCLES } from './exercises.js?v=202610191918';
+import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610191918';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -28,9 +30,9 @@ function toast(msg, ms = 3200) {
 
 function show(view) {
   $$('.view').forEach((v) => { v.hidden = v.id !== `v-${view}`; });
-  const tabbed = ['home', 'dash', 'settings'].includes(view);
+  const tabbed = ['home', 'dash', 'settings', 'pick'].includes(view);
   $('#tabs').hidden = !tabbed;
-  $$('.tab').forEach((t) => t.classList.toggle('on', t.dataset.view === view));
+  $$('.tab').forEach((t) => t.classList.toggle('on', t.dataset.view === (view === 'pick' ? 'home' : view)));
   window.scrollTo(0, 0);
 }
 
@@ -142,13 +144,19 @@ function renderHome() {
   const h = now.getHours();
   $('#home-greet').textContent = h < 11 ? 'Guten Morgen. Zeit, die Hüfte zu lösen.' : h < 15 ? 'Kurze Pause für den Rücken?' : h < 19 ? 'Fünf Atemzüge Aufrichtung zwischendurch?' : 'Den Tag locker ausklingen lassen.';
   $$('.mode').forEach((b) => { const on = +b.dataset.mode === ui.mode; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); });
-  ui.plans = suggestions({ mode: ui.mode, equipment: settings.equipment, date: dkey(now), recent: recentMap(), intensity: settings.intensity, reroll: ui.reroll, floorAtNoon: settings.floorAtNoon });
+  ui.bal = computeBalance(hist);
+  ui.need = Object.fromEntries(rankExercises(ui.bal, settings.equipment).map((r) => [r.ex.id, r.score]));
+  ui.plans = suggestions({ mode: ui.mode, equipment: settings.equipment, date: dkey(now), recent: recentMap(), intensity: settings.intensity, reroll: ui.reroll, floorAtNoon: settings.floorAtNoon, need: ui.need });
+  const foc = focusGroups(ui.bal, 3);
+  $('#focusbar').innerHTML = ui.bal.windowSec
+    ? `<span>Lange nicht dran:</span>${foc.map((g) => `<span class="tag need">${esc(g.label)}</span>`).join('')}`
+    : '<span>Noch keine Trainingsdaten – die Vorschläge decken erst einmal alle Bereiche ab.</span>';
   $('#suggestions').innerHTML = ui.plans.map((p, i) => {
     const live = p.items.filter((it) => byId[it.id].checks.length).length;
     return `<button class="sug ${i === ui.variant ? 'on' : ''}" data-i="${i}" type="button" aria-pressed="${i === ui.variant}">
       <span class="sname">${esc(p.variantName)}</span><span class="stime">${fmtMin(p.seconds)}</span>
       <span class="slist">${p.items.map((it) => esc(it.name)).join(' · ')}</span>
-      <span class="smeta"><span class="tag">${p.items.length} Übungen</span><span class="tag">${live} mit Live-Prüfung</span><span class="tag">${cameraMoves(p)}× Kamera umstellen</span></span>
+      <span class="smeta">${p.needScore !== null && p.needScore !== undefined ? `<span class="tag need">Bedarf ${Math.round(p.needScore * 100)} %</span>` : ''}<span class="tag">${p.items.length} Übungen</span><span class="tag">${live} mit Live-Prüfung</span><span class="tag">${cameraMoves(p)}× Kamera umstellen</span></span>
     </button>`;
   }).join('');
   $$('.sug').forEach((b) => b.addEventListener('click', () => { ui.variant = +b.dataset.i; renderHome(); }));
@@ -180,13 +188,55 @@ function doseText(it) {
 
 $$('.mode').forEach((b) => b.addEventListener('click', () => { ui.mode = +b.dataset.mode; ui.variant = 0; renderHome(); }));
 $('#b-reroll').addEventListener('click', () => { ui.reroll++; renderHome(); });
-$('#b-start').addEventListener('click', () => {
-  $('#ci-stiff').value = 5; $('#ci-pain').value = 2; syncOut('ci-stiff'); syncOut('ci-pain');
-  show('checkin');
-});
-$('#b-ci-back').addEventListener('click', () => { stopDc(); show('home'); });
+$('#b-start').addEventListener('click', () => { ui.customPlan = null; show('checkin'); });
+
+// ── Übungsauswahl (Menü) ──
+ui.picked = [];
+function renderPick() {
+  const bal = computeBalance(hist);
+  const groups = Object.values(bal.groups);
+  const max = Math.max(...groups.map((g) => g.sec), 1);
+  const fairSec = bal.windowSec / groups.length;
+  $('#pick-window').textContent = bal.windowSec
+    ? `Ausgewertet: ${Math.round(bal.windowSec / 60)} von ${WINDOW_MIN} Minuten (die jüngsten Übungen zuerst). Der Strich zeigt den gleichmäßigen Anteil.`
+    : 'Noch keine Trainingszeit gespeichert. Alle Bereiche gelten als offen.';
+  $('#pick-bars').innerHTML = groups.sort((a, b) => b.need - a.need).map((g) => `
+    <div class="mbar ${g.need > 0.6 ? 'low' : ''}">
+      <span class="mname">${esc(g.label)}</span>
+      <span class="track"><span class="fill" style="width:${(g.sec / max) * 100}%"></span>${bal.windowSec ? `<span class="fair" style="left:${Math.min(100, (fairSec / max) * 100)}%"></span>` : ''}</span>
+      <span class="mval">${Math.round(g.sec / 60 * 10) / 10} Min · ${agoText(g.days)}</span>
+    </div>`).join('');
+  const ranked = rankExercises(bal, settings.equipment);
+  const cat = ui.pickCat || 'alle';
+  const cats = { alle: 'Alle', ...{ mobility: 'Mobilisation', hip: 'Hüfte', stability: 'Kräftigung', posture: 'Aufrichtung', relax: 'Entspannung', warmup: 'Aufwärmen' } };
+  $('#pick-filter').innerHTML = Object.entries(cats).map(([k, v]) => `<label class="chip"><input type="radio" name="pick-cat" id="pc-${k}" value="${k}" ${k === cat ? 'checked' : ''}><span>${v}</span></label>`).join('');
+  $$('#pick-filter input').forEach((i) => i.addEventListener('change', () => { ui.pickCat = i.value; renderPick(); }));
+  $('#pick-list').innerHTML = ranked.filter((r) => cat === 'alle' || r.ex.cat === cat).map((r, i) => {
+    const on = ui.picked.includes(r.ex.id);
+    const pos = ui.picked.indexOf(r.ex.id);
+    return `<li class="pick ${on ? 'on' : ''}">
+      <span class="rank">${i + 1}</span>
+      <div><div class="pname">${esc(r.ex.name)}</div>
+        <div class="pmeta"><span>${r.ex.muscles.map((m) => esc(MUSCLES[m])).join(' · ')}</span><span>zuletzt ${agoText(r.days)}</span></div>
+        <div class="need" title="Bedarf ${Math.round(r.score * 100)} %"><i style="width:${Math.round(r.score * 100)}%"></i></div></div>
+      <button class="add" type="button" data-id="${r.ex.id}" aria-pressed="${on}" aria-label="${on ? 'Entfernen' : 'Hinzufügen'}">${on ? pos + 1 : '+'}</button>
+    </li>`;
+  }).join('');
+  $$('#pick-list .add').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.id;
+    ui.picked = ui.picked.includes(id) ? ui.picked.filter((x) => x !== id) : [...ui.picked, id];
+    renderPick();
+  }));
+  const plan = ui.picked.length ? buildCustomPlan(ui.picked, { intensity: settings.intensity, date: dkey(new Date()) }) : null;
+  $('#pick-sum').textContent = plan ? `${plan.items.length} Übung${plan.items.length === 1 ? '' : 'en'} · ca. ${fmtMin(plan.seconds)} Min` : 'Tippe auf +, um Übungen in die Runde zu legen';
+  $('#b-pick-start').disabled = !plan;
+  ui.customPlan = plan;
+}
+$('#b-pick').addEventListener('click', () => { renderPick(); show('pick'); });
+$('#b-pick-back').addEventListener('click', () => { renderHome(); show('home'); });
+$('#b-pick-start').addEventListener('click', () => { if (ui.customPlan) show('checkin'); });
+$('#b-ci-back').addEventListener('click', () => { stopDc(); if (ui.customPlan) { renderPick(); show('pick'); } else show('home'); });
 function syncOut(id) { $(`#${id}-o`).textContent = $(`#${id}`).value; }
-['ci-stiff', 'ci-pain', 'co-stiff', 'co-pain'].forEach((id) => $(`#${id}`).addEventListener('input', () => { syncOut(id); checkPainWarn(); }));
 
 // ── Training ────────────────────────────────────────────
 let S = null; // laufende Einheit
@@ -194,14 +244,13 @@ let S = null; // laufende Einheit
 $('#b-ci-go').addEventListener('click', () => { stopDc(); startSession(); });
 
 async function startSession() {
-  const plan = ui.plans[ui.variant];
+  const plan = ui.customPlan || ui.plans[ui.variant];
   const speaker = new Speaker(settings);
   speaker.unlock();
   const devMode = $('#dev-toggle').checked;
   S = {
     plan, speaker, devMode, t0: performance.now(), startedAt: new Date(),
     id: crypto.randomUUID(),
-    checkin: { stiffness: +$('#ci-stiff').value, pain: +$('#ci-pain').value },
     items: plan.items.map((it) => ({ ...it, workSec: 0, frames: 0, inFrame: 0, scored: 0, scoreSum: 0, cues: 0, badFrames: {}, mSum: {}, mN: 0, flags: 0, repResults: [] })),
     repRows: [], tracker: null, repPosture: { n: 0, sum: 0 }, repStart: 0, raiseSince: null, prevCenter: null, stopPrepAnim: null, stopMiniAnim: null, miniFor: null, roll: null,
     samples: [], lastSample: 0, check: [], evaluator: null, results: [], metrics: null, P: null,
@@ -876,6 +925,16 @@ function finishSession(completed) {
   showCheckout();
 }
 
+function musclesOf(exs) {
+  const out = {};
+  for (const e of exs) {
+    const m = byId[e.id]?.muscles || [];
+    const w = m.map((_, i) => (i === 0 ? 1 : 0.5)), ws = w.reduce((a, b) => a + b, 0) || 1;
+    m.forEach((g, i) => { out[g] = Math.round(((out[g] || 0) + (e.workSec * w[i]) / ws) * 10) / 10; });
+  }
+  return out;
+}
+
 function showCheckout() {
   const sm = S.summary;
   $('#co-title').textContent = S.completed ? 'Gut gemacht.' : 'Training beendet.';
@@ -883,23 +942,11 @@ function showCheckout() {
     <div class="kpi"><span class="klabel">Dauer</span><span class="kval">${fmtMin(sm.durationSec)}</span></div>
     <div class="kpi"><span class="klabel">Übungen</span><span class="kval">${sm.exercisesDone}/${sm.exercisesPlanned}</span></div>
     <div class="kpi"><span class="klabel">Haltung</span><span class="kval">${sm.avgScore === null ? '–' : Math.round(sm.avgScore * 100) + ' %'}</span></div>`;
-  $('#co-stiff').value = S.checkin.stiffness; $('#co-pain').value = S.checkin.pain;
-  syncOut('co-stiff'); syncOut('co-pain');
   $('#co-note').value = '';
   $('#co-note-l').textContent = S.devMode ? 'Hinweise zur Haltungserkennung (für Claude)' : 'Notiz (optional)';
-  $('#co-warn').hidden = true;
   setMsg('#co-msg', '');
   $('#b-co-save').disabled = false;
   show('checkout');
-}
-
-function checkPainWarn() {
-  if (!S?.checkin) return;
-  const w = $('#co-warn');
-  const worse = +$('#co-pain').value >= S.checkin.pain + 2;
-  w.hidden = !worse;
-  w.className = 'notice warn';
-  w.textContent = 'Der Schmerz ist stärker als vorher. Lass belastende Übungen beim nächsten Mal weg oder wähle „Zu schwer“. Hält das an, kläre es ärztlich oder mit deiner Physiotherapie ab.';
 }
 
 $('#b-co-save').addEventListener('click', async () => {
@@ -907,7 +954,7 @@ $('#b-co-save').addEventListener('click', async () => {
   $('#b-co-save').disabled = true;
   const rating = document.querySelector('input[name="co-rate"]:checked')?.value || 'passend';
   const note = $('#co-note').value.trim();
-  const checkout = { stiffness: +$('#co-stiff').value, pain: +$('#co-pain').value, rating, note };
+  const checkout = { rating, note };
   if (S.dev) S.dev.notes.text = note;
   // Intensität anpassen
   if (rating === 'leicht') settings.intensity = Math.min(1.5, Math.round(settings.intensity * 1.1 * 100) / 100);
@@ -916,19 +963,19 @@ $('#b-co-save').addEventListener('click', async () => {
   const session = {
     id: S.id, schema_version: SCHEMA_VERSION,
     started_at: S.startedAt.toISOString(), ended_at: S.endedAt.toISOString(),
-    mode: S.plan.mode, variant: S.plan.variantName, completed: S.completed, dev_mode: S.devMode,
+    mode: typeof S.plan.mode === 'number' ? S.plan.mode : null, variant: S.plan.variantName, completed: S.completed, dev_mode: S.devMode,
     device: { ua: navigator.userAgent, fps: S.fps.value, model: settings.model, camera: settings.camera, cameraOk: !!S.stream, speech: S.speaker.stats(), devcheck: ui.devcheck || null },
     settings_snapshot: { ...settingsSnap, calib },
     plan: { date: S.plan.date, variant: S.plan.variant, reroll: S.plan.reroll, seconds: S.plan.seconds, items: S.plan.items },
     exercises: S.exercises, posture_check: S.postureCheck || null,
-    checkin: S.checkin, checkout, summary: S.summary,
+    checkin: null, checkout, summary: { ...S.summary, muscles: musclesOf(S.exercises) },
   };
   const record = { session, samples: S.samples, dev: S.dev, snapshots: S.snapshots, reps: S.repRows };
   setMsg('#co-msg', 'Wird gespeichert …');
   try {
     const r = await store.saveRecord(record);
     await store.saveSettings(settings).catch(() => {});
-    S = null;
+    S = null; ui.customPlan = null; ui.picked = [];
     hist = await store.history();
     renderHome();
     show('home');

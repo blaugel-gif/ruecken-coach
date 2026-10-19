@@ -1,6 +1,7 @@
 // Dashboard: Kennzahlen und Verläufe aus den gespeicherten Einheiten
-import { byId } from './exercises.js?v=202610191633';
-import { CHECKS } from './pose.js?v=202610191633';
+import { byId } from './exercises.js?v=202610191918';
+import { CHECKS } from './pose.js?v=202610191918';
+import { computeBalance, agoText, WINDOW_MIN } from './balance.js?v=202610191918';
 
 const DAY = 864e5;
 const dkey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
@@ -22,13 +23,11 @@ export function computeKpis(hist) {
   const scored = sessions.filter((s) => typeof s.summary?.avgScore === 'number');
   const last7 = scored.slice(-7).map((s) => s.summary.avgScore);
   const prev7 = scored.slice(-14, -7).map((s) => s.summary.avgScore);
-  const stiff = sessions.filter((s) => typeof s.checkout?.stiffness === 'number');
-  const stiffLast = avg(stiff.slice(-5).map((s) => s.checkout.stiffness));
-  const stiffFirst = stiff.length >= 10 ? avg(stiff.slice(0, 5).map((s) => s.checkout.stiffness)) : null;
+  const totalMin = sessions.reduce((m, s) => m + (s.summary?.durationSec || 0), 0) / 60;
   return {
     total: sessions.length, weekCount: week.length, weekMin, streak,
     score: avg(last7), scoreDelta: prev7.length ? avg(last7) - avg(prev7) : null,
-    stiffLast, stiffDelta: stiffFirst !== null && stiffLast !== null ? stiffLast - stiffFirst : null,
+    totalMin,
     sessions,
   };
 }
@@ -121,10 +120,16 @@ export function renderDashboard(el, hist) {
     return `<span class="delta ${good ? 'up' : 'down'}">${v > 0 ? '+' : '−'}${Math.abs(unit === '%' ? Math.round(v * 100) : Math.round(v * 10) / 10)}${unit === '%' ? ' Pkt.' : ''}</span>`;
   };
   const scoreSeries = [{ name: 'Haltungsqualität', points: S.filter((s) => typeof s.summary?.avgScore === 'number').map((s) => ({ x: +new Date(s.started_at), y: s.summary.avgScore, label: `${fmtDate(s.started_at)}, ${s.mode} Min.` })) }];
-  const stiffSeries = [
-    { name: 'Vorher', points: S.filter((s) => typeof s.checkin?.stiffness === 'number').map((s) => ({ x: +new Date(s.started_at), y: s.checkin.stiffness })) },
-    { name: 'Nachher', points: S.filter((s) => typeof s.checkout?.stiffness === 'number').map((s) => ({ x: +new Date(s.started_at), y: s.checkout.stiffness })) },
-  ];
+  const bal = computeBalance(hist);
+  const groups = Object.values(bal.groups).sort((x, y) => y.sec - x.sec);
+  const gmax = Math.max(1, ...groups.map((g) => g.sec));
+  const fairSec = bal.windowSec / groups.length;
+  const muscleHtml = bal.windowSec ? `<div class="mbars">${groups.map((g) => `
+      <div class="mbar ${g.need > 0.6 ? 'low' : ''}" data-tip="${esc(`${g.label}: ${Math.round(g.sec / 6) / 10} Min, zuletzt ${agoText(g.days)}`)}">
+        <span class="mname">${esc(g.label)}</span>
+        <span class="track"><span class="fill" style="width:${(g.sec / gmax) * 100}%"></span><span class="fair" style="left:${Math.min(100, (fairSec / gmax) * 100)}%"></span></span>
+        <span class="mval">${(Math.round(g.sec / 6) / 10).toLocaleString('de-DE')} Min · ${agoText(g.days)}</span>
+      </div>`).join('')}</div>` : '<p class="empty">Noch keine Daten.</p>';
   const pc = S.filter((s) => s.posture_check && typeof s.posture_check.shoulderTilt === 'number');
   const postureSeries = [
     { name: 'Schulterschiefstand', points: pc.map((s) => ({ x: +new Date(s.started_at), y: Math.abs(s.posture_check.shoulderTilt) })) },
@@ -138,7 +143,7 @@ export function renderDashboard(el, hist) {
       <div class="kpi"><span class="klabel">Diese Woche</span><span class="kval">${k.weekCount}</span><span class="ksub">Einheiten · ${Math.round(k.weekMin)} Min.</span></div>
       <div class="kpi"><span class="klabel">Serie</span><span class="kval">${k.streak}</span><span class="ksub">Tag${k.streak === 1 ? '' : 'e'} in Folge</span></div>
       <div class="kpi"><span class="klabel">Ø Haltung</span><span class="kval">${k.score === null ? '–' : pct(k.score)}</span><span class="ksub">letzte 7 Einheiten ${delta(k.scoreDelta, '%')}</span></div>
-      <div class="kpi"><span class="klabel">Hüftsteifigkeit</span><span class="kval">${k.stiffLast === null ? '–' : (Math.round(k.stiffLast * 10) / 10).toLocaleString('de-DE')}</span><span class="ksub">von 10, nach dem Training ${delta(k.stiffDelta, '', true)}</span></div>
+      <div class="kpi"><span class="klabel">Trainingszeit</span><span class="kval">${Math.round(k.totalMin)}</span><span class="ksub">Minuten insgesamt</span></div>
     </section>
     <section class="card">
       <h3>Haltungsqualität je Einheit</h3>
@@ -146,10 +151,9 @@ export function renderDashboard(el, hist) {
       ${lineChart({ series: scoreSeries, yMin: 0, yMax: 1, yTicks: [0, 0.25, 0.5, 0.75, 1], yFmt: pct, id: 'c_score' })}
     </section>
     <section class="card">
-      <h3>Hüftsteifigkeit vorher / nachher</h3>
-      <p class="hint">Deine Selbsteinschätzung, 0 = frei beweglich, 10 = sehr steif.</p>
-      ${legend(stiffSeries)}
-      ${lineChart({ series: stiffSeries, yMin: 0, yMax: 10, yTicks: [0, 2, 4, 6, 8, 10], id: 'c_stiff' })}
+      <h3>Muskelgruppen, letzte ${WINDOW_MIN} Minuten Training</h3>
+      <p class="hint">Übungszeit je Muskelgruppe (Hauptgruppe voll, Nebengruppen halb gezählt). Der Strich zeigt einen gleichmäßigen Anteil; fett = lange nicht dran.</p>
+      ${muscleHtml}
     </section>
     <section class="card">
       <h3>Ausgangshaltung im Haltungs-Check</h3>

@@ -183,6 +183,11 @@ export function computeMetrics(P) {
   const ka = [kneeAng(L.lHip, L.lKn, L.lAn), kneeAng(L.rHip, L.rKn, L.rAn)].filter((v) => v !== null);
   m.kneeAngleMax = ka.length ? Math.max(...ka) : null;
   m.hipToAnkleY = ok(L.lAn, L.rAn) ? (((P[L.lAn].y + P[L.rAn].y) / 2) - midH.y) / torsoF : null;
+  m.hipY = ok(L.lHip, L.rHip, L.lSh, L.rSh) ? midH.y / torsoF : null; // sinkt das Becken (Kniebeuge), steigt der Wert
+  const elbAng = (sh, el, wr) => (ok(sh, el, wr) ? angle(P[sh], P[el], P[wr]) : null);
+  const ea = [elbAng(L.lSh, L.lEl, L.lWr), elbAng(L.rSh, L.rEl, L.rWr)].filter((v) => v !== null);
+  m.elbowAngleMin = ea.length ? Math.min(...ea) : null;
+  m.elbowAngleMax = ea.length ? Math.max(...ea) : null;
   return m;
 }
 
@@ -202,6 +207,7 @@ export const CHECKS = {
   kneesUnderHips: { label: 'Knie unter Hüfte', metric: 'kneesUnderHips', min: 0, max: 0.3, vis: 'sideLeg', side: true, cueHigh: 'Knie unter die Hüfte', cueLow: null, bones: [['H', 'K']] },
   hipExtended: { label: 'Becken oben', metric: 'hipAngle', min: 155, max: 200, vis: 'sideLeg', side: true, cueHigh: null, cueLow: 'Becken höher schieben, Gesäß anspannen', bones: [['S', 'H'], ['H', 'K']] },
   kneesSoft: { label: 'Knie leicht gebeugt', metric: 'kneeAngle', min: 140, max: 177, vis: 'sideLeg', side: true, cueHigh: 'Knie leicht beugen', cueLow: 'Knie weniger beugen', bones: [['H', 'K'], ['K', 'A']] },
+  bodyLine: { label: 'Körper in einer Linie', metric: 'hipAngle', min: 158, max: 200, vis: 'sideLeg', side: true, cueHigh: null, cueLow: 'Hüfte nicht durchhängen lassen, Bauch fest', bones: [['S', 'H'], ['H', 'K']] },
   armLevel: { label: 'Arm waagerecht', metric: 'armLevel', center: 0, tol: 18, vis: 'side', side: true, optional: true, cueHigh: 'Arm etwas tiefer, auf Schulterhöhe', cueLow: 'Arm höher, auf Schulterhöhe', guide: { type: 'limbHorizontal', key: '_armIdx' }, bones: [] },
   legLevel: { label: 'Bein waagerecht', metric: 'legLevel', center: 0, tol: 15, vis: 'side', side: true, optional: true, cueHigh: 'Bein etwas tiefer, kein Hohlkreuz', cueLow: 'Bein höher, auf Hüfthöhe strecken', guide: { type: 'limbHorizontal', key: '_legIdx' }, bones: [] },
 };
@@ -389,7 +395,7 @@ function drawGuide(ctx, P, m, r, colors, lw) {
 // Kompakte Momentaufnahme der Metriken (für Speicherung)
 export function compactMetrics(m) {
   if (!m) return null;
-  const keys = ['roll', 'dist', 'shoulderTilt', 'hipTilt', 'shoulderHipDiff', 'trunkShift', 'headShift', 'elbowDiff', 'wristDiff', 'trunkLean', 'hipAngle', 'kneeAngle', 'earForward', 'torsoFromHorizontal', 'armLevel', 'legLevel', 'wristsAboveHead', 'wristsAtShoulder', 'armsU', 'wristSpread', 'kneeLift', 'kneeOut', 'pelvisShift', 'footLift', 'neckLen', 'headDrop', 'wristAboveShoulder', 'hipAngleMin', 'hipAngleMax', 'kneeAngleMax', 'hipToAnkleY'];
+  const keys = ['roll', 'dist', 'shoulderTilt', 'hipTilt', 'shoulderHipDiff', 'trunkShift', 'headShift', 'elbowDiff', 'wristDiff', 'trunkLean', 'hipAngle', 'kneeAngle', 'earForward', 'torsoFromHorizontal', 'armLevel', 'legLevel', 'wristsAboveHead', 'wristsAtShoulder', 'armsU', 'wristSpread', 'kneeLift', 'kneeOut', 'pelvisShift', 'footLift', 'neckLen', 'headDrop', 'wristAboveShoulder', 'hipAngleMin', 'hipAngleMax', 'kneeAngleMax', 'hipToAnkleY', 'hipY', 'elbowAngleMin', 'elbowAngleMax'];
   const o = {};
   for (const k of keys) if (m[k] !== null && m[k] !== undefined && Number.isFinite(m[k])) o[k] = Math.round(m[k] * 100) / 100;
   return o;

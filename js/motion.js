@@ -260,6 +260,22 @@ export const MOTIONS = {
     { id: 'haende', label: 'Hände an die Rippen', key: {}, test: gt('wristsAtRibs', 1.5) },
     { id: 'lang', label: 'In die Flanken atmen, lang bleiben', key: { hip: [100, 111] }, test: absLt('shoulderTilt', 4) },
   ] },
+  kniebeugen: { view: 'front', kind: 'cycle', cycleSec: 3.5, base: F('stand'), phases: [
+    { id: 'tief', label: 'Gesäß nach hinten unten', key: { hip: [100, 140], lLs: 0.45, rLs: 0.45, lLU: 14, rLU: 14, lLL: 2, rLL: 2, lAU: 70, rAU: 70, lAF: 80, rAF: 80, lAs: 0.5, rAs: 0.5 }, test: relGt('hipY', 0.18) },
+    { id: 'hoch', label: 'Wieder aufrichten', key: {}, test: (m, b) => (has(m.hipY) && has(b?.hipY) ? m.hipY < b.hipY + 0.06 : null) },
+  ] },
+  kniebeugen_stuhl: { view: 'front', kind: 'cycle', cycleSec: 4, base: F('stand'), props: ['chair'], phases: [
+    { id: 'tief', label: 'Langsam zum Stuhl', key: { hip: [100, 140], lLs: 0.35, rLs: 0.35, lLU: 12, rLU: 12, lLL: 2, rLL: 2, lAU: 70, rAU: 70, lAF: 80, rAF: 80, lAs: 0.5, rAs: 0.5 }, test: relGt('hipY', 0.2) },
+    { id: 'hoch', label: 'Gleichmäßig aufstehen', key: {}, test: (m, b) => (has(m.hipY) && has(b?.hipY) ? m.hipY < b.hipY + 0.06 : null) },
+  ] },
+  liegestuetz_wand: { view: 'side', kind: 'cycle', cycleSec: 3, base: S('stand', { hip: [92, 114], trunk: 22, head: 22, aU: 85, aF: 90, aU2: 85, aF2: 90, lU: 200, lL: 200, lU2: 200, lL2: 200 }), props: ['wall'], phases: [
+    { id: 'beug', label: 'Arme beugen, Brust zur Wand', key: { hip: [102, 112], trunk: 28, head: 28, aU: 140, aF: 50, aU2: 140, aF2: 50 }, test: lt('elbowAngleMin', 115) },
+    { id: 'drueck', label: 'Wegdrücken', key: {}, test: gt('elbowAngleMax', 155) },
+  ] },
+  liegestuetz_knie: { view: 'side', kind: 'cycle', cycleSec: 3, base: S('quad', { hip: [70, 150], trunk: 73, head: 85, lU: 205, lL: 270, lU2: 205, lL2: 270 }), props: ['mat'], phases: [
+    { id: 'beug', label: 'Brust kontrolliert zum Boden', key: { hip: [70, 162], trunk: 82, head: 88, aU: 150, aF: 210, aU2: 150, aF2: 210 }, test: lt('elbowAngleMin', 115) },
+    { id: 'drueck', label: 'Hochdrücken', key: {}, test: gt('elbowAngleMax', 155) },
+  ] },
 };
 
 // Keyframe-Folge für die Animation
@@ -324,7 +340,7 @@ export class MotionTracker {
     if (!this.base) {
       this.baseBuf.push(m);
       if (now - this.t0 > 800 && this.baseBuf.length >= 4) {
-        const keys = ['trunkLean', 'neckLen', 'noseY', 'pelvisShift'];
+        const keys = ['trunkLean', 'neckLen', 'noseY', 'pelvisShift', 'hipY'];
         this.base = {};
         for (const k of keys) {
           const v = this.baseBuf.map((x) => x[k]).filter(has).sort((a, b) => a - b);

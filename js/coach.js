@@ -1,9 +1,9 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js?v=202610191633';
-import { cameraText } from './camera-svg.js?v=202610191633';
-import { MOTIONS } from './motion.js?v=202610191633';
-import { CHECKS } from './pose.js?v=202610191633';
-import * as neural from './neuralvoice.js?v=202610191633';
+import { byId } from './exercises.js?v=202610191918';
+import { cameraText } from './camera-svg.js?v=202610191918';
+import { MOTIONS } from './motion.js?v=202610191918';
+import { CHECKS } from './pose.js?v=202610191918';
+import * as neural from './neuralvoice.js?v=202610191918';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);

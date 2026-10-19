@@ -269,7 +269,60 @@ export const EXERCISES = [
     steps: ['Aufrecht stehen, Hände seitlich an die unteren Rippen.', 'Einatmen: Rippen gegen die Hände weiten, besonders auf der flacheren Seite.', 'Ausatmen: lang bleiben.'],
     cue: 'In die Flanken atmen, lang bleiben.', checks: ['shouldersLevel', 'trunkCentered'], goal: 'Brustkorb weiten, Atemwahrnehmung', src: 'Skoliose-Übungsprinzip (Atemlenkung)',
   },
+
+  // ── Kräftigung (Ganzkörper, symmetrisch) ──────────────────
+  {
+    id: 'kniebeugen', name: 'Kniebeugen', cat: 'stability', equip: [], pos: 'stand', view: 'front',
+    cam: { height: 'Hüfthöhe', dist: '2–2,5 m' }, type: 'flow', reps: 2, hold: 30, rest: 15, sides: 1,
+    steps: ['Hüftbreit stehen, Fußspitzen leicht nach außen.', 'Gesäß nach hinten unten schieben, Knie über den Füßen, Arme nach vorn.', 'Nur so tief, wie es ohne Schmerz geht, dann wieder aufrichten.', 'Gewicht gleichmäßig auf beiden Füßen, Rücken lang.'],
+    cue: 'Gesäß nach hinten, Knie über die Füße, Gewicht gleich verteilt.', checks: ['shouldersLevel', 'pelvisLevel', 'trunkCentered'], goal: 'Beine und Gesäß symmetrisch kräftigen', src: 'Physio-Standard',
+  },
+  {
+    id: 'kniebeugen_stuhl', name: 'Kniebeugen zum Stuhl', cat: 'stability', equip: ['stuhl'], pos: 'stand', view: 'front',
+    cam: { height: 'Hüfthöhe', dist: '2–2,5 m' }, type: 'flow', reps: 2, hold: 30, rest: 15, sides: 1,
+    steps: ['Vor einen Stuhl stellen, Füße hüftbreit.', 'Langsam absenken, bis das Gesäß die Sitzfläche kurz berührt.', 'Ohne Schwung wieder aufstehen, Knie zeigen über die Füße.'],
+    cue: 'Langsam zum Stuhl, kurz antippen, gleichmäßig hochdrücken.', checks: ['shouldersLevel', 'pelvisLevel', 'trunkCentered'], goal: 'Beine kräftigen mit Sicherheit durch den Stuhl', src: 'Physio-Standard',
+  },
+  {
+    id: 'liegestuetz_wand', name: 'Liegestütze an der Wand', cat: 'stability', equip: ['wand'], pos: 'stand', view: 'side',
+    cam: { height: 'Brusthöhe', dist: '2 m' }, type: 'flow', reps: 2, hold: 30, rest: 15, sides: 1,
+    steps: ['Eine Armlänge vor der Wand stehen, Hände schulterbreit auf Brusthöhe.', 'Arme beugen, Brust Richtung Wand, Körper bleibt eine Linie.', 'Wieder wegdrücken, Schulterblätter nicht hochziehen.'],
+    cue: 'Körper bleibt gerade wie ein Brett, Ellbogen schräg nach hinten.', checks: ['bodyLine'], goal: 'Brust, Schultern und Rumpf schonend kräftigen', src: 'Physio-Standard',
+  },
+  {
+    id: 'liegestuetz_knie', name: 'Liegestütze auf den Knien', cat: 'stability', equip: ['matte'], pos: 'quad', view: 'side',
+    cam: { height: 'Boden', dist: '2 m' }, type: 'flow', reps: 2, hold: 25, rest: 20, sides: 1,
+    steps: ['Knie auf der Matte, Hände etwas breiter als die Schultern.', 'Körper von Knie bis Kopf in einer Linie, Bauch fest.', 'Brust kontrolliert zum Boden, dann wieder hochdrücken.'],
+    cue: 'Bauch fest, Hüfte nicht durchhängen lassen.', checks: ['bodyLine'], goal: 'Brust, Schultern und Rumpf kräftigen', src: 'Physio-Standard',
+  },
 ];
+
+// Muskelgruppen (Hauptgruppe zuerst)
+export const MUSCLES = {
+  nacken: 'Nacken', schulter: 'Schultern & oberer Rücken', bws: 'Brustwirbelsäule', brust: 'Brust & Arme',
+  rumpf: 'Bauch & Rumpf', lws: 'Unterer Rücken', gesaess: 'Gesäß', hueftbeuger: 'Hüftbeuger',
+  hueftrot: 'Hüftdreher & Innenseite', beine: 'Oberschenkel',
+};
+const MUSCLE_MAP = {
+  marschieren: ['hueftbeuger', 'beine', 'schulter'], hueftkreisen: ['lws', 'hueftrot'], beckenbalance: ['lws', 'rumpf'],
+  schulterkreisen: ['schulter', 'nacken'], katze_kuh: ['bws', 'lws'], nadel_einfaedeln: ['bws', 'schulter'],
+  wandengel: ['schulter', 'bws'], kinn_einziehen: ['nacken'], bws_stuhllehne: ['bws', 'brust'], rolle_laengs: ['brust', 'bws'],
+  ball_beckenkreisen: ['lws', 'hueftrot'], hueftbeuger_halbknie: ['hueftbeuger', 'gesaess'], hueftbeuger_stand: ['hueftbeuger', 'beine'],
+  neunzig_neunzig: ['hueftrot', 'gesaess'], piriformis_ruecken: ['gesaess', 'hueftrot'], piriformis_sitz: ['gesaess', 'hueftrot'],
+  beckenheben: ['gesaess', 'lws', 'beine'], hueftbeugen_stab: ['beine', 'gesaess', 'lws'], knie_brust: ['lws', 'gesaess'],
+  schmetterling: ['hueftrot'], hueftrotation_stand: ['hueftrot', 'hueftbeuger'], vierfuessler_diagonal: ['rumpf', 'lws', 'gesaess', 'schulter'],
+  dead_bug: ['rumpf', 'hueftbeuger'], grundspannung_sitz: ['rumpf', 'bws', 'schulter'], aufrichtung_stand: ['rumpf', 'bws'],
+  nacken_druck: ['nacken'], arme_seit_kreise: ['schulter'], hampelmann_sitz: ['schulter', 'nacken'], band_zug: ['schulter', 'bws'],
+  band_kopf: ['schulter', 'bws'], hantel_u: ['schulter', 'brust'], bauchlage_schwimmen: ['bws', 'schulter', 'lws'],
+  bauchlage_spannung: ['lws', 'gesaess', 'nacken'], ball_beinheben: ['rumpf', 'hueftbeuger'], stufenlagerung_wand: ['lws', 'rumpf'],
+  stufenlagerung: ['lws'], kindhaltung: ['lws', 'bws'], flankenatmung: ['bws', 'rumpf'],
+  kniebeugen: ['beine', 'gesaess', 'rumpf'], kniebeugen_stuhl: ['beine', 'gesaess'],
+  liegestuetz_wand: ['brust', 'schulter', 'rumpf'], liegestuetz_knie: ['brust', 'schulter', 'rumpf'],
+};
+for (const e of EXERCISES) e.muscles = MUSCLE_MAP[e.id] || [];
+// Varianten derselben Übung nicht zusammen in eine Runde legen
+const FAMILY = { kniebeugen: 'squat', kniebeugen_stuhl: 'squat', liegestuetz_wand: 'pushup', liegestuetz_knie: 'pushup', hueftbeuger_halbknie: 'hipflex', hueftbeuger_stand: 'hipflex', piriformis_ruecken: 'glute', piriformis_sitz: 'glute', stufenlagerung: 'stufe', stufenlagerung_wand: 'stufe', hueftkreisen: 'pelvis', ball_beckenkreisen: 'pelvis', beckenbalance: 'pelvis' };
+for (const e of EXERCISES) e.family = FAMILY[e.id] || e.id;
 
 export const byId = Object.fromEntries(EXERCISES.map((e) => [e.id, e]));
 

@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121716" media="(prefers-color-scheme: dark)">
 <title>Rücken-Coach</title>
-<meta name="app-version" content="202610191633">
+<meta name="app-version" content="202610191918">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="img/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
-<link rel="stylesheet" href="css/app.css?v=202610191633">
+<link rel="stylesheet" href="css/app.css?v=202610191918">
 <script type="importmap">{"imports":{"onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js"}}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 </head>
@@ -81,7 +81,9 @@
         <h2>Vorschläge für heute</h2>
         <button id="b-reroll" class="btn small ghost" type="button">Neu mischen</button>
       </div>
+      <div class="focusbar" id="focusbar"></div>
       <div id="suggestions" class="sugs"></div>
+      <button id="b-pick" class="btn ghost wide" type="button">Übungen selbst wählen</button>
       <div id="plan-detail" class="card plan-detail" hidden></div>
       <div class="startbar">
         <label class="toggle"><input type="checkbox" id="dev-toggle"><span>Dev-Modus</span></label>
@@ -91,20 +93,31 @@
     </div>
   </section>
 
+  <!-- Übungsauswahl -->
+  <section id="v-pick" class="view" hidden>
+    <header class="top"><div class="brand"><span class="plumb" aria-hidden="true"></span><span>Übungsauswahl</span></div>
+      <button id="b-pick-back" class="btn small ghost" type="button">Zurück</button></header>
+    <div class="wrap">
+      <section class="card">
+        <h3>Muskelgruppen in deinen letzten 45 Minuten Training</h3>
+        <p class="hint" id="pick-window"></p>
+        <div class="mbars" id="pick-bars"></div>
+      </section>
+      <div class="rowhead"><h2>Vorschläge</h2><span class="hint">Was am längsten nicht dran war, steht oben</span></div>
+      <div class="chips" id="pick-filter"></div>
+      <ol class="picklist" id="pick-list"></ol>
+    </div>
+    <div class="pickbar">
+      <div class="pick-sum" id="pick-sum">Noch keine Übung gewählt</div>
+      <button id="b-pick-start" class="btn primary" type="button" disabled>Runde starten</button>
+    </div>
+  </section>
+
   <!-- Check-in -->
   <section id="v-checkin" class="view" hidden>
     <div class="narrow">
       <p class="eyebrow">Vor dem Training</p>
-      <h1 class="h1">Wie fühlst du dich gerade?</h1>
-      <div class="slider">
-        <label for="ci-stiff">Hüftsteifigkeit <output id="ci-stiff-o">5</output></label>
-        <input id="ci-stiff" type="range" min="0" max="10" value="5">
-        <div class="scale"><span>frei</span><span>sehr steif</span></div>
-      </div>
-      <div class="slider">
-        <label for="ci-pain">Rückenschmerz <output id="ci-pain-o">2</output></label>
-        <input id="ci-pain" type="range" min="0" max="10" value="2">
-        <div class="scale"><span>keiner</span><span>stark</span></div>
+      <h1 class="h1">Kamera &amp; Ton bereit?</h1>
       </div>
       <section class="card devcheck" id="devcheck">
         <div class="rowhead"><h3>Kamera &amp; Ton</h3><button id="b-devcheck" class="btn small primary" type="button">Prüfen</button></div>
@@ -217,15 +230,6 @@
       <p class="eyebrow">Geschafft</p>
       <h1 class="h1" id="co-title">Gut gemacht.</h1>
       <div id="co-summary" class="summary"></div>
-      <div class="slider">
-        <label for="co-stiff">Hüftsteifigkeit jetzt <output id="co-stiff-o">5</output></label>
-        <input id="co-stiff" type="range" min="0" max="10" value="5">
-        <div class="scale"><span>frei</span><span>sehr steif</span></div>
-      </div>
-      <div class="slider">
-        <label for="co-pain">Rückenschmerz jetzt <output id="co-pain-o">2</output></label>
-        <input id="co-pain" type="range" min="0" max="10" value="2">
-        <div class="scale"><span>keiner</span><span>stark</span></div>
       </div>
       <fieldset class="seg3">
         <legend>Wie war die Belastung?</legend>
@@ -235,7 +239,6 @@
       </fieldset>
       <label for="co-note" id="co-note-l">Notiz (optional)</label>
       <textarea id="co-note" rows="3" placeholder="z. B. linke Hüfte zog bei der 90/90-Dehnung"></textarea>
-      <p id="co-warn" class="notice" hidden></p>
       <button id="b-co-save" class="btn primary wide" type="button">Speichern</button>
       <p id="co-msg" class="msg" role="status"></p>
     </div>
@@ -331,6 +334,6 @@
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=202610191633"></script>
+<script type="module" src="js/app.js?v=202610191918"></script>
 </body>
 </html>
