@@ -167,14 +167,14 @@ $('#b-start').addEventListener('click', () => {
   $('#ci-stiff').value = 5; $('#ci-pain').value = 2; syncOut('ci-stiff'); syncOut('ci-pain');
   show('checkin');
 });
-$('#b-ci-back').addEventListener('click', () => show('home'));
+$('#b-ci-back').addEventListener('click', () => { stopDc(); show('home'); });
 function syncOut(id) { $(`#${id}-o`).textContent = $(`#${id}`).value; }
 ['ci-stiff', 'ci-pain', 'co-stiff', 'co-pain'].forEach((id) => $(`#${id}`).addEventListener('input', () => { syncOut(id); checkPainWarn(); }));
 
 // ── Training ────────────────────────────────────────────
 let S = null; // laufende Einheit
 
-$('#b-ci-go').addEventListener('click', () => startSession());
+$('#b-ci-go').addEventListener('click', () => { stopDc(); startSession(); });
 
 async function startSession() {
   const plan = ui.plans[ui.variant];
@@ -197,24 +197,70 @@ async function startSession() {
   $('#camstatus').textContent = 'Kamera wird gestartet …';
   window.onerror = (m, src, line) => devLog('error', { m: String(m), src, line });
 
+  if (S.dev) S.dev.env = { ua: navigator.userAgent, screen: [screen.width, screen.height, devicePixelRatio], settings: { ...settings, calib: settings.calib }, plan: plan.items.map((i) => i.id), secure: window.isSecureContext, standalone: matchMedia('(display-mode: standalone)').matches };
+  speaker.log = devLog;
   try { S.wake = await navigator.wakeLock?.request('screen'); } catch { /* optional */ }
+  await speaker.ready();
+  devLog('permission_camera', { state: await cameraPermission() });
 
-  // Kamera
+  await startCamera();
+  if (!S) return; // während des Ladens beendet
+
+  S.runner = new SessionRunner({
+    plan, settings: { ...settings, prep: MODES[plan.mode].prep }, speaker,
+    onStep: onStep, onTick: onTick, onFinish: () => finishSession(true), log: devLog,
+  });
+  S.runner.start();
+  loop();
+}
+
+async function cameraPermission() {
+  try { return (await navigator.permissions.query({ name: 'camera' })).state; } catch { return 'unbekannt'; }
+}
+
+async function openCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) throw Object.assign(new Error('getUserMedia fehlt'), { name: 'NotSupportedError' });
   try {
-    S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: settings.camera, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    return await navigator.mediaDevices.getUserMedia({ video: { facingMode: settings.camera, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+  } catch (e) {
+    // Manche Geräte scheitern an den Auflösungswünschen: einfach nochmal ohne
+    if (e.name === 'OverconstrainedError' || e.name === 'NotReadableError') return navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    throw e;
+  }
+}
+
+function cameraHelp(e) {
+  const n = e?.name || '';
+  if (n === 'NotAllowedError' || n === 'SecurityError') {
+    return `<p><strong>Der Browser blockiert die Kamera für diese Seite.</strong> So gibst du sie frei:</p>
+      <ol><li>Tippe in der Adressleiste links neben der Adresse auf das Symbol (ⓘ oder Schieberegler).</li>
+      <li><strong>Berechtigungen → Kamera → Zulassen</strong>.</li>
+      <li>Steht dort nichts: Android-<strong>Einstellungen → Apps → Chrome → Berechtigungen → Kamera</strong> → „Nur während der Nutzung zulassen“.</li>
+      <li>Seite neu laden.</li></ol>`;
+  }
+  if (n === 'NotReadableError') return '<p><strong>Die Kamera ist belegt.</strong> Schließ andere Apps, die die Kamera nutzen (Videoanruf, Kamera-App), und versuch es erneut.</p>';
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return '<p><strong>Keine passende Kamera gefunden.</strong> Stell in den Einstellungen die andere Kamera ein (Front/Rück).</p>';
+  return `<p><strong>Kamera konnte nicht starten</strong> (${esc(n || String(e))}).</p>`;
+}
+
+async function startCamera() {
+  $('#camfail').hidden = true;
+  $('#camstatus').textContent = 'Kamera wird gestartet …';
+  try {
+    S.stream = await openCamera();
     const v = $('#video'); v.srcObject = S.stream; await v.play();
     $('#stage').classList.toggle('mirror', settings.camera === 'user');
     const track = S.stream.getVideoTracks()[0];
     devLog('camera', { settings: track.getSettings?.(), label: track.label });
   } catch (e) {
-    devLog('camera_error', { e: String(e) });
-    $('#camstatus').textContent = 'Keine Kamera. Das Training läuft mit Sprachansagen weiter.';
-    speaker.say('Ich kann die Kamera nicht öffnen. Das Training läuft trotzdem mit Ansagen.');
+    devLog('camera_error', { e: String(e), name: e?.name, permission: await cameraPermission() });
+    $('#camstatus').textContent = '';
+    $('#camfail-txt').innerHTML = `${cameraHelp(e)}<p>Das Training läuft so lange mit Sprachansagen weiter.</p>`;
+    $('#camfail').hidden = false;
+    S.speaker.say('Ich kann die Kamera nicht öffnen. Das Training läuft trotzdem mit Ansagen.');
+    return;
   }
-  if (S.dev) S.dev.env = { ua: navigator.userAgent, screen: [screen.width, screen.height, devicePixelRatio], settings: { ...settings, calib: settings.calib }, plan: plan.items.map((i) => i.id) };
-
-  // Erkennung
-  if (S.stream) {
+  if (!S.landmarker) {
     $('#camstatus').textContent = 'Haltungserkennung wird geladen …';
     try {
       S.landmarker = await loadPoseModel(settings.model, devLog);
@@ -225,15 +271,59 @@ async function startSession() {
       setTimeout(() => { if (S) $('#camstatus').textContent = ''; }, 5000);
     }
   }
-  if (!S) return; // während des Ladens beendet
-
-  S.runner = new SessionRunner({
-    plan, settings: { ...settings, prep: MODES[plan.mode].prep }, speaker,
-    onStep: onStep, onTick: onTick, onFinish: () => finishSession(true), log: devLog,
-  });
-  S.runner.start();
-  loop();
 }
+$('#b-cam-retry').addEventListener('click', () => { if (S) startCamera(); });
+
+// ── Geräteprüfung vor dem Training ──
+let dcStream = null, dcSpeaker = null;
+function dcSet(which, cls, text) { $(`#dc-${which}-dot`).className = `dc-dot ${cls}`; $(`#dc-${which}`).textContent = text; }
+function voiceHelp(sp) {
+  const noDe = sp && sp.supported && sp.voicesCount > 0 && sp.deVoices === 0;
+  return `<p><strong>${noDe ? 'Auf dem Handy ist keine deutsche Stimme installiert.' : 'Die Sprachausgabe des Handys bleibt stumm.'}</strong> So richtest du sie ein:</p>
+    <ol><li>Android-<strong>Einstellungen → System → Sprachen &amp; Eingabe → Sprachausgabe</strong> (heißt je nach Gerät auch „Text-in-Sprache“).</li>
+    <li>Bevorzugte Engine: <strong>Sprachdienste von Google</strong>. Falls nicht vorhanden: im Play Store „Speech Services by Google“ installieren.</li>
+    <li>Sprache <strong>Deutsch</strong> wählen und bei Bedarf die Sprachdaten herunterladen. Mit „Beispiel anhören“ testen.</li>
+    <li>Medienlautstärke am Handy hochdrehen, dann Chrome komplett schließen und die App neu öffnen.</li></ol>`;
+}
+function stopDc() { dcStream?.getTracks().forEach((t) => t.stop()); dcStream = null; $('#dc-video').hidden = true; }
+
+$('#b-devcheck').addEventListener('click', async () => {
+  const help = [];
+  $('#dc-help').hidden = true; $('#dc-voice-ask').hidden = true;
+  // Ton zuerst, solange die Nutzergeste frisch ist
+  dcSpeaker = new Speaker({ ...settings, mute: false });
+  dcSpeaker.unlock();
+  dcSpeaker.say('Hallo. Wenn du mich hörst, tippe auf: Stimme gehört.');
+  dcSet('voice', 'warn', 'Sprachansage: läuft …');
+  // Kamera
+  dcSet('cam', 'warn', 'Kamera: wird geöffnet …');
+  stopDc();
+  try {
+    dcStream = await openCamera();
+    const v = $('#dc-video'); v.srcObject = dcStream; v.hidden = false; await v.play();
+    dcSet('cam', 'ok', 'Kamera: funktioniert');
+  } catch (e) {
+    dcSet('cam', 'bad', `Kamera: blockiert (${e?.name || e})`);
+    help.push(cameraHelp(e));
+  }
+  await dcSpeaker.ready();
+  setTimeout(() => {
+    const st = dcSpeaker.stats();
+    if (!st.supported) { dcSet('voice', 'bad', 'Sprachansage: Browser unterstützt keine Sprachausgabe'); help.push(voiceHelp(dcSpeaker)); }
+    else if (st.deVoices === 0 && st.voices > 0) { dcSet('voice', 'bad', 'Sprachansage: keine deutsche Stimme gefunden'); help.push(voiceHelp(dcSpeaker)); }
+    else if (st.errors) { dcSet('voice', 'bad', `Sprachansage: Fehler (${st.lastError})`); help.push(voiceHelp(dcSpeaker)); }
+    else { dcSet('voice', 'warn', `Sprachansage: ${st.voice || 'Standardstimme'}. Hast du sie gehört?`); $('#dc-voice-ask').hidden = false; }
+    if (help.length) { $('#dc-help').innerHTML = help.join('<hr>'); $('#dc-help').hidden = false; }
+    ui.devcheck = { at: new Date().toISOString(), cam: $('#dc-cam').textContent, speech: st, permission: null };
+  }, 2500);
+});
+$('#b-heard-yes').addEventListener('click', () => { dcSet('voice', 'ok', 'Sprachansage: funktioniert'); $('#dc-voice-ask').hidden = true; if (ui.devcheck) ui.devcheck.heard = true; });
+$('#b-heard-no').addEventListener('click', () => {
+  dcSet('voice', 'bad', 'Sprachansage: nicht hörbar');
+  $('#dc-voice-ask').hidden = true;
+  if (ui.devcheck) ui.devcheck.heard = false;
+  const h = $('#dc-help'); h.innerHTML = (h.hidden ? '' : h.innerHTML + '<hr>') + voiceHelp(dcSpeaker); h.hidden = false;
+});
 
 function devLog(ev, data = {}) {
   if (!S?.dev) return;
@@ -451,6 +541,7 @@ function finishSession(completed) {
   window.onerror = null;
   S.endedAt = new Date();
   S.completed = completed;
+  devLog('speech_stats', S.speaker.stats());
 
   const exercises = S.items.map((it) => {
     const planned = it.reps * it.hold * it.sides;
@@ -525,7 +616,7 @@ $('#b-co-save').addEventListener('click', async () => {
     id: S.id, schema_version: SCHEMA_VERSION,
     started_at: S.startedAt.toISOString(), ended_at: S.endedAt.toISOString(),
     mode: S.plan.mode, variant: S.plan.variantName, completed: S.completed, dev_mode: S.devMode,
-    device: { ua: navigator.userAgent, fps: S.fps.value, model: settings.model, camera: settings.camera },
+    device: { ua: navigator.userAgent, fps: S.fps.value, model: settings.model, camera: settings.camera, cameraOk: !!S.stream, speech: S.speaker.stats(), devcheck: ui.devcheck || null },
     settings_snapshot: { ...settingsSnap, calib },
     plan: { date: S.plan.date, variant: S.plan.variant, reroll: S.plan.reroll, seconds: S.plan.seconds, items: S.plan.items },
     exercises: S.exercises, posture_check: S.postureCheck || null,

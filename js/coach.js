@@ -5,40 +5,86 @@ import { cameraText } from './camera-svg.js';
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
 
+// Robuste Sprachausgabe. Chrome auf Android verschluckt Ansagen, wenn speak() direkt nach cancel()
+// aufgerufen wird, wenn die Stimmenliste noch nicht geladen ist oder wenn Utterance-Objekte vom
+// Garbage Collector eingesammelt werden. Daher: eigene Warteschlange, Verzögerung nach cancel,
+// Referenzen halten, resume() vor jedem speak, Diagnose über log().
 export class Speaker {
-  constructor(settings) {
+  constructor(settings, log = () => {}) {
     this.settings = settings;
+    this.log = log;
     this.voice = null;
+    this.voicesCount = 0;
+    this.deVoices = 0;
     this.lastSpoke = 0;
     this.ctx = null;
+    this.alive = new Set();
+    this.cancelledAt = 0;
+    this.started = 0; this.errors = 0; this.lastError = null;
+    this.supported = 'speechSynthesis' in window;
     this.pickVoice();
-    if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => this.pickVoice();
+    if (this.supported) speechSynthesis.addEventListener?.('voiceschanged', () => this.pickVoice());
   }
   pickVoice() {
-    if (!('speechSynthesis' in window)) return;
-    const voices = speechSynthesis.getVoices().filter((v) => v.lang?.toLowerCase().startsWith('de'));
+    if (!this.supported) return;
+    const all = speechSynthesis.getVoices();
+    const voices = all.filter((v) => v.lang?.toLowerCase().replace('_', '-').startsWith('de'));
+    this.voicesCount = all.length; this.deVoices = voices.length;
     const pref = this.settings.voiceName && voices.find((v) => v.name === this.settings.voiceName);
-    this.voice = pref || voices.find((v) => /premium|enhanced|neural|google/i.test(v.name)) || voices[0] || null;
+    this.voice = pref || voices.find((v) => v.localService && /google/i.test(v.name)) || voices.find((v) => v.localService) || voices.find((v) => /premium|enhanced|neural|google/i.test(v.name)) || voices[0] || null;
+  }
+  // Wartet kurz, bis die Stimmen geladen sind (Android liefert sie verzögert)
+  async ready(ms = 1500) {
+    if (!this.supported) return;
+    const t0 = performance.now();
+    while (!speechSynthesis.getVoices().length && performance.now() - t0 < ms) await new Promise((r) => setTimeout(r, 100));
+    this.pickVoice();
+    this.log('speech_ready', { voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, local: this.voice?.localService ?? null });
   }
   unlock() {
     try {
       this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
       this.ctx.resume?.();
-      if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }
     } catch { /* ohne Ton weiter */ }
+    if (this.supported) {
+      try {
+        speechSynthesis.resume();
+        // Kurze hörbare Ansage innerhalb der Nutzergeste schaltet die Sprachausgabe frei
+        this._speak('Los geht’s.');
+      } catch (e) { this.log('speech_unlock_error', { e: String(e) }); }
+    }
   }
-  get busy() { return 'speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending); }
-  say(text, { interrupt = false } = {}) {
-    if (!text || this.settings.mute || !('speechSynthesis' in window)) return;
-    if (interrupt) speechSynthesis.cancel();
+  get busy() { return this.supported && (speechSynthesis.speaking || speechSynthesis.pending); }
+  _speak(text) {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'de-DE';
+    u.lang = this.voice?.lang || 'de-DE';
     if (this.voice) u.voice = this.voice;
     u.rate = this.settings.speechRate || 1.05;
+    u.volume = 1;
+    this.alive.add(u);
+    u.onstart = () => { this.started++; };
+    u.onend = () => { this.alive.delete(u); };
+    u.onerror = (ev) => {
+      this.alive.delete(u);
+      if (ev.error === 'interrupted' || ev.error === 'canceled') return;
+      this.errors++; this.lastError = ev.error;
+      this.log('speech_error', { error: ev.error, text: text.slice(0, 40) });
+    };
+    if (speechSynthesis.paused) speechSynthesis.resume();
     speechSynthesis.speak(u);
     this.lastSpoke = performance.now();
   }
-  stop() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  say(text, { interrupt = false } = {}) {
+    if (!text || this.settings.mute || !this.supported) return;
+    if (interrupt && this.busy) {
+      speechSynthesis.cancel();
+      this.cancelledAt = performance.now();
+    }
+    const wait = Math.max(0, 180 - (performance.now() - this.cancelledAt));
+    if (wait > 0) setTimeout(() => this._speak(text), wait); else this._speak(text);
+  }
+  stop() { if (this.supported) { speechSynthesis.cancel(); this.cancelledAt = performance.now(); } }
+  stats() { return { supported: this.supported, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, started: this.started, errors: this.errors, lastError: this.lastError }; }
   beep(freq = 880, ms = 120, vol = 0.18) {
     if (this.settings.mute || !this.ctx) return;
     try {

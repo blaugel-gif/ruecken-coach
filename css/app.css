@@ -312,3 +312,17 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; }
 .toast { position: fixed; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 12px; z-index: 60; font-weight: 600; max-width: 90vw; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Geräteprüfung */
+.devcheck { gap: 8px; }
+.devcheck .rowhead { margin: 0; }
+.dc-row { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; }
+.dc-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--line); flex: none; }
+.dc-dot.ok { background: var(--ok); }
+.dc-dot.bad { background: var(--bad); }
+.dc-dot.warn { background: var(--warn); }
+#dc-video { width: 100%; max-width: 220px; border-radius: 10px; transform: scaleX(-1); background: #000; }
+#dc-help ol { margin: 6px 0 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.camfail { z-index: 30; max-height: 80%; overflow: auto; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(90%, 460px); background: rgba(0,0,0,0.82); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; text-align: left; font-size: 1rem; }
+.camfail p { margin: 0; }
+.camfail ol { margin: 0; padding-left: 1.2em; }

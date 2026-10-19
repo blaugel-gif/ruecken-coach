@@ -104,6 +104,17 @@
         <input id="ci-pain" type="range" min="0" max="10" value="2">
         <div class="scale"><span>keiner</span><span>stark</span></div>
       </div>
+      <section class="card devcheck" id="devcheck">
+        <div class="rowhead"><h3>Kamera &amp; Ton</h3><button id="b-devcheck" class="btn small primary" type="button">Prüfen</button></div>
+        <div class="dc-row"><span class="dc-dot" id="dc-cam-dot"></span><span id="dc-cam">Kamera: noch nicht geprüft</span></div>
+        <div class="dc-row"><span class="dc-dot" id="dc-voice-dot"></span><span id="dc-voice">Sprachansage: noch nicht geprüft</span></div>
+        <video id="dc-video" playsinline muted hidden></video>
+        <div id="dc-help" class="notice" hidden></div>
+        <div class="btnrow" id="dc-voice-ask" hidden>
+          <button id="b-heard-yes" class="btn small ghost" type="button">Stimme gehört</button>
+          <button id="b-heard-no" class="btn small ghost" type="button">Nur Töne / nichts</button>
+        </div>
+      </section>
       <p class="hint">Stell das Handy für die erste Übung auf, Ton laut. Die App führt dich per Sprache durch alles.</p>
       <div class="btnrow">
         <button id="b-ci-back" class="btn ghost" type="button">Zurück</button>
@@ -132,6 +143,10 @@
       <div class="checks" id="checks"></div>
       <div class="cue" id="cue" hidden></div>
       <div class="camstatus" id="camstatus"></div>
+      <div class="camfail" id="camfail" hidden>
+        <p id="camfail-txt"></p>
+        <button id="b-cam-retry" class="btn primary" type="button">Kamera erneut versuchen</button>
+      </div>
 
       <div class="prep" id="prep" hidden>
         <div class="prep-in">
