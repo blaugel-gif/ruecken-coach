@@ -288,15 +288,28 @@ function voiceHelp(sp) {
 }
 function stopDc() { dcStream?.getTracks().forEach((t) => t.stop()); dcStream = null; $('#dc-video').hidden = true; }
 
+function dcDiag(st) {
+  const el = $('#dc-diag');
+  el.hidden = false;
+  el.textContent = `Diagnose: ${st.supported ? '' : 'keine Sprachausgabe im Browser · '}Stimmen ${st.voices} (deutsch ${st.de}) · gewählt: ${st.compat ? 'Systemstandard' : (st.voice || 'keine')} · gestartet ${st.started} · beendet ${st.ended} · Fehler ${st.errors}${st.lastError ? ' (' + st.lastError + ')' : ''}`;
+}
+function saveDevcheck(extra = {}) {
+  ui.devcheck = { ...(ui.devcheck || {}), ...extra, at: new Date().toISOString(), ua: navigator.userAgent, speech: dcSpeaker?.stats() || null, cam: $('#dc-cam').textContent };
+  settings.lastDevcheck = ui.devcheck;
+  store.saveSettings(settings).catch(() => {});
+}
+function dcSpeakTest(compat) {
+  dcSpeaker = new Speaker({ ...settings, mute: false, speechCompat: compat });
+  dcSpeaker.unlock();
+  dcSpeaker.say(compat ? 'Zweiter Versuch. Hörst du mich jetzt?' : 'Hallo. Wenn du mich hörst, tippe auf: Stimme gehört.');
+}
+
 $('#b-devcheck').addEventListener('click', async () => {
   const help = [];
-  $('#dc-help').hidden = true; $('#dc-voice-ask').hidden = true;
+  $('#dc-help').hidden = true; $('#dc-voice-ask').hidden = true; ui.dcCompatTried = false;
   // Ton zuerst, solange die Nutzergeste frisch ist
-  dcSpeaker = new Speaker({ ...settings, mute: false });
-  dcSpeaker.unlock();
-  dcSpeaker.say('Hallo. Wenn du mich hörst, tippe auf: Stimme gehört.');
+  dcSpeakTest(!!settings.speechCompat);
   dcSet('voice', 'warn', 'Sprachansage: läuft …');
-  // Kamera
   dcSet('cam', 'warn', 'Kamera: wird geöffnet …');
   stopDc();
   try {
@@ -310,19 +323,34 @@ $('#b-devcheck').addEventListener('click', async () => {
   await dcSpeaker.ready();
   setTimeout(() => {
     const st = dcSpeaker.stats();
+    dcDiag(st);
     if (!st.supported) { dcSet('voice', 'bad', 'Sprachansage: Browser unterstützt keine Sprachausgabe'); help.push(voiceHelp(dcSpeaker)); }
-    else if (st.deVoices === 0 && st.voices > 0) { dcSet('voice', 'bad', 'Sprachansage: keine deutsche Stimme gefunden'); help.push(voiceHelp(dcSpeaker)); }
-    else if (st.errors) { dcSet('voice', 'bad', `Sprachansage: Fehler (${st.lastError})`); help.push(voiceHelp(dcSpeaker)); }
-    else { dcSet('voice', 'warn', `Sprachansage: ${st.voice || 'Standardstimme'}. Hast du sie gehört?`); $('#dc-voice-ask').hidden = false; }
+    else { dcSet('voice', 'warn', 'Sprachansage: Hast du eine Stimme gehört?'); $('#dc-voice-ask').hidden = false; }
     if (help.length) { $('#dc-help').innerHTML = help.join('<hr>'); $('#dc-help').hidden = false; }
-    ui.devcheck = { at: new Date().toISOString(), cam: $('#dc-cam').textContent, speech: st, permission: null };
-  }, 2500);
+    saveDevcheck({ heard: null });
+  }, 3000);
 });
-$('#b-heard-yes').addEventListener('click', () => { dcSet('voice', 'ok', 'Sprachansage: funktioniert'); $('#dc-voice-ask').hidden = true; if (ui.devcheck) ui.devcheck.heard = true; });
+$('#b-heard-yes').addEventListener('click', () => {
+  dcSet('voice', 'ok', 'Sprachansage: funktioniert');
+  $('#dc-voice-ask').hidden = true;
+  if (ui.dcCompatTried) { settings.speechCompat = true; toast('Kompatibilitätsmodus für Ansagen eingeschaltet.'); }
+  dcDiag(dcSpeaker.stats());
+  saveDevcheck({ heard: true, compatWorked: ui.dcCompatTried || undefined });
+});
 $('#b-heard-no').addEventListener('click', () => {
+  dcDiag(dcSpeaker.stats());
+  if (!ui.dcCompatTried) {
+    // zweiter Versuch ohne feste Stimme, direkt in der Nutzergeste
+    ui.dcCompatTried = true;
+    saveDevcheck({ heard: false, mode: settings.speechCompat ? 'compat' : 'voice' });
+    dcSpeakTest(!settings.speechCompat);
+    dcSet('voice', 'warn', 'Sprachansage: zweiter Versuch – hörst du jetzt etwas?');
+    setTimeout(() => dcDiag(dcSpeaker.stats()), 2500);
+    return;
+  }
   dcSet('voice', 'bad', 'Sprachansage: nicht hörbar');
   $('#dc-voice-ask').hidden = true;
-  if (ui.devcheck) ui.devcheck.heard = false;
+  saveDevcheck({ heard: false, compatHeard: false });
   const h = $('#dc-help'); h.innerHTML = (h.hidden ? '' : h.innerHTML + '<hr>') + voiceHelp(dcSpeaker); h.hidden = false;
 });
 

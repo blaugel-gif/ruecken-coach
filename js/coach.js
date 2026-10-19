@@ -57,13 +57,14 @@ export class Speaker {
   get busy() { return this.supported && (speechSynthesis.speaking || speechSynthesis.pending); }
   _speak(text) {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = this.voice?.lang || 'de-DE';
-    if (this.voice) u.voice = this.voice;
+    // Kompatibilitätsmodus: keine Stimme vorgeben, nur Sprache (hilft bei manchen Android-Geräten)
+    if (this.settings.speechCompat) { u.lang = 'de-DE'; }
+    else { u.lang = this.voice?.lang || 'de-DE'; if (this.voice) u.voice = this.voice; }
     u.rate = this.settings.speechRate || 1.05;
     u.volume = 1;
     this.alive.add(u);
     u.onstart = () => { this.started++; };
-    u.onend = () => { this.alive.delete(u); };
+    u.onend = () => { this.ended = (this.ended || 0) + 1; this.alive.delete(u); };
     u.onerror = (ev) => {
       this.alive.delete(u);
       if (ev.error === 'interrupted' || ev.error === 'canceled') return;
@@ -84,7 +85,7 @@ export class Speaker {
     if (wait > 0) setTimeout(() => this._speak(text), wait); else this._speak(text);
   }
   stop() { if (this.supported) { speechSynthesis.cancel(); this.cancelledAt = performance.now(); } }
-  stats() { return { supported: this.supported, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, started: this.started, errors: this.errors, lastError: this.lastError }; }
+  stats() { return { supported: this.supported, compat: !!this.settings.speechCompat, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, voiceLang: this.voice?.lang || null, local: this.voice?.localService ?? null, started: this.started, ended: this.ended || 0, errors: this.errors, lastError: this.lastError, speaking: this.supported ? speechSynthesis.speaking : null, paused: this.supported ? speechSynthesis.paused : null }; }
   beep(freq = 880, ms = 120, vol = 0.18) {
     if (this.settings.mute || !this.ctx) return;
     try {
