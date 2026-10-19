@@ -1,6 +1,6 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js?v=202610191025';
-import { cameraText } from './camera-svg.js?v=202610191025';
+import { byId } from './exercises.js?v=202610191031';
+import { cameraText } from './camera-svg.js?v=202610191031';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
@@ -59,7 +59,7 @@ export class Speaker {
     const u = new SpeechSynthesisUtterance(text);
     // Kompatibilitätsmodus: keine Stimme vorgeben, nur Sprache (hilft bei manchen Android-Geräten)
     if (this.settings.speechCompat) { u.lang = 'de-DE'; }
-    else { u.lang = this.voice?.lang || 'de-DE'; if (this.voice) u.voice = this.voice; }
+    else { u.lang = (this.voice?.lang || 'de-DE').replace('_', '-'); if (this.voice) u.voice = this.voice; }
     u.rate = this.settings.speechRate || 1.05;
     u.volume = 1;
     this.alive.add(u);

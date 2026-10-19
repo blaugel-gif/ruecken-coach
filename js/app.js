@@ -1,10 +1,10 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610191025';
-import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191025';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191025';
-import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191025';
-import { Speaker, SessionRunner } from './coach.js?v=202610191025';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191025';
-import { renderDashboard } from './dashboard.js?v=202610191025';
+import { EQUIPMENT, byId } from './exercises.js?v=202610191031';
+import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191031';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191031';
+import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191031';
+import { Speaker, SessionRunner } from './coach.js?v=202610191031';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191031';
+import { renderDashboard } from './dashboard.js?v=202610191031';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
