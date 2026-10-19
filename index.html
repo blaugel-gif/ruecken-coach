@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121716" media="(prefers-color-scheme: dark)">
+<title>Rücken-Coach</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="img/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
+<link rel="stylesheet" href="css/app.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <!-- Einrichtung -->
+  <section id="v-setup" class="view" hidden>
+    <div class="narrow">
+      <div class="brand big"><span class="plumb" aria-hidden="true"></span><h1>Rücken-Coach</h1></div>
+      <p class="lead">Live-Haltungskontrolle per Kamera, Sprachansagen und täglich wechselnde Übungen für Rücken und Hüfte.</p>
+      <div class="notice">
+        <strong>Bei starker Skoliose:</strong> Die App ersetzt keine Physiotherapie. Stimme die Übungen und besonders asymmetrische Korrekturen mit deiner Physiotherapeutin oder deinem Arzt ab. Bei Schmerzen, Kribbeln oder Taubheit sofort aufhören.
+      </div>
+      <h2>Datenspeicher verbinden</h2>
+      <p class="hint">Deine Trainingsdaten liegen in deinem eigenen Supabase-Projekt. Zugriff nur mit deinem Login. Die Werte findest du in Supabase unter <em>Project Settings → API</em>.</p>
+      <form id="f-setup" class="form">
+        <label for="cfg-url">Project URL</label>
+        <input id="cfg-url" type="url" placeholder="https://xxxx.supabase.co" autocomplete="off" required>
+        <label for="cfg-key">anon / publishable key</label>
+        <input id="cfg-key" type="text" placeholder="eyJ… oder sb_publishable_…" autocomplete="off" required>
+        <button class="btn primary" type="submit">Verbinden</button>
+      </form>
+      <button id="b-local" class="btn ghost" type="button">Erst einmal ohne Cloud ausprobieren</button>
+      <p id="setup-msg" class="msg" role="status"></p>
+    </div>
+  </section>
+
+  <!-- Login -->
+  <section id="v-auth" class="view" hidden>
+    <div class="narrow">
+      <div class="brand big"><span class="plumb" aria-hidden="true"></span><h1>Rücken-Coach</h1></div>
+      <div class="seg" role="tablist">
+        <button id="t-login" class="segbtn on" type="button" role="tab" aria-selected="true">Anmelden</button>
+        <button id="t-register" class="segbtn" type="button" role="tab" aria-selected="false">Konto anlegen</button>
+      </div>
+      <form id="f-auth" class="form">
+        <label for="au-email">E-Mail</label>
+        <input id="au-email" type="email" autocomplete="username" required>
+        <label for="au-pw">Passwort</label>
+        <input id="au-pw" type="password" autocomplete="current-password" minlength="10" required>
+        <p class="hint" id="au-hint">Mindestens 10 Zeichen.</p>
+        <button class="btn primary" type="submit" id="au-submit">Anmelden</button>
+      </form>
+      <p id="auth-msg" class="msg" role="status"></p>
+      <button id="b-reconfig" class="btn link" type="button">Anderen Datenspeicher verbinden</button>
+    </div>
+  </section>
+
+  <!-- Start -->
+  <section id="v-home" class="view" hidden>
+    <header class="top">
+      <div class="brand"><span class="plumb" aria-hidden="true"></span><span>Rücken-Coach</span></div>
+      <span id="sync-state" class="pill"></span>
+    </header>
+    <div class="wrap">
+      <p class="eyebrow" id="home-date"></p>
+      <h1 class="h1" id="home-greet">Bereit für deinen Rücken?</h1>
+      <div class="modes" role="radiogroup" aria-label="Trainingsdauer">
+        <button class="mode" data-mode="10" role="radio"><span class="mmin">10</span><span class="mlab">Min · Basis</span><span class="mwhen">morgens</span></button>
+        <button class="mode" data-mode="5" role="radio"><span class="mmin">5</span><span class="mlab">Min · Mittag</span><span class="mwhen">mittags</span></button>
+        <button class="mode" data-mode="3" role="radio"><span class="mmin">3</span><span class="mlab">Min · Kurz</span><span class="mwhen">zwischendurch</span></button>
+      </div>
+      <div class="rowhead">
+        <h2>Vorschläge für heute</h2>
+        <button id="b-reroll" class="btn small ghost" type="button">Neu mischen</button>
+      </div>
+      <div id="suggestions" class="sugs"></div>
+      <div id="plan-detail" class="card plan-detail" hidden></div>
+      <div class="startbar">
+        <label class="toggle"><input type="checkbox" id="dev-toggle"><span>Dev-Modus</span></label>
+        <button id="b-start" class="btn primary wide" type="button">Training starten</button>
+      </div>
+      <p class="hint center" id="equip-hint"></p>
+    </div>
+  </section>
+
+  <!-- Check-in -->
+  <section id="v-checkin" class="view" hidden>
+    <div class="narrow">
+      <p class="eyebrow">Vor dem Training</p>
+      <h1 class="h1">Wie fühlst du dich gerade?</h1>
+      <div class="slider">
+        <label for="ci-stiff">Hüftsteifigkeit <output id="ci-stiff-o">5</output></label>
+        <input id="ci-stiff" type="range" min="0" max="10" value="5">
+        <div class="scale"><span>frei</span><span>sehr steif</span></div>
+      </div>
+      <div class="slider">
+        <label for="ci-pain">Rückenschmerz <output id="ci-pain-o">2</output></label>
+        <input id="ci-pain" type="range" min="0" max="10" value="2">
+        <div class="scale"><span>keiner</span><span>stark</span></div>
+      </div>
+      <p class="hint">Stell das Handy für die erste Übung auf, Ton laut. Die App führt dich per Sprache durch alles.</p>
+      <div class="btnrow">
+        <button id="b-ci-back" class="btn ghost" type="button">Zurück</button>
+        <button id="b-ci-go" class="btn primary" type="button">Kamera an &amp; los</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Training -->
+  <section id="v-session" class="view session" hidden>
+    <div class="stage" id="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <div class="ring" id="ring"></div>
+      <div class="hud-top">
+        <div class="hud-ex">
+          <span class="hud-phase" id="hud-phase">Vorbereitung</span>
+          <span class="hud-name" id="hud-name"></span>
+        </div>
+        <span class="hud-prog" id="hud-prog"></span>
+      </div>
+      <div class="hud-timer">
+        <span class="timer" id="timer">0</span>
+        <span class="reps" id="reps"></span>
+      </div>
+      <div class="checks" id="checks"></div>
+      <div class="cue" id="cue" hidden></div>
+      <div class="camstatus" id="camstatus"></div>
+
+      <div class="prep" id="prep" hidden>
+        <div class="prep-in">
+          <p class="eyebrow" id="prep-eyebrow">Nächste Übung</p>
+          <h2 id="prep-name"></h2>
+          <p class="dose" id="prep-dose"></p>
+          <div class="prep-cols">
+            <figure class="camfig">
+              <div id="prep-cam"></div>
+              <figcaption id="prep-camtxt"></figcaption>
+            </figure>
+            <ol class="steps" id="prep-steps"></ol>
+          </div>
+          <p class="viewcheck" id="prep-viewcheck"></p>
+        </div>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="cbtn" id="c-pause" type="button">Pause</button>
+      <button class="cbtn" id="c-more" type="button">+10 s</button>
+      <button class="cbtn" id="c-skip" type="button">Übung überspringen</button>
+      <button class="cbtn" id="c-mute" type="button">Ton aus</button>
+      <button class="cbtn dev" id="c-flag" type="button" hidden>Erkennung falsch</button>
+      <button class="cbtn end" id="c-end" type="button">Beenden</button>
+    </div>
+    <div class="confirm" id="end-confirm" hidden>
+      <div class="confirm-in">
+        <p>Training jetzt beenden? Bisherige Übungen werden gespeichert.</p>
+        <div class="btnrow"><button class="btn ghost" id="c-end-no" type="button">Weitermachen</button><button class="btn primary" id="c-end-yes" type="button">Beenden</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Check-out -->
+  <section id="v-checkout" class="view" hidden>
+    <div class="narrow">
+      <p class="eyebrow">Geschafft</p>
+      <h1 class="h1" id="co-title">Gut gemacht.</h1>
+      <div id="co-summary" class="summary"></div>
+      <div class="slider">
+        <label for="co-stiff">Hüftsteifigkeit jetzt <output id="co-stiff-o">5</output></label>
+        <input id="co-stiff" type="range" min="0" max="10" value="5">
+        <div class="scale"><span>frei</span><span>sehr steif</span></div>
+      </div>
+      <div class="slider">
+        <label for="co-pain">Rückenschmerz jetzt <output id="co-pain-o">2</output></label>
+        <input id="co-pain" type="range" min="0" max="10" value="2">
+        <div class="scale"><span>keiner</span><span>stark</span></div>
+      </div>
+      <fieldset class="seg3">
+        <legend>Wie war die Belastung?</legend>
+        <label><input type="radio" name="co-rate" value="leicht"><span>Zu leicht</span></label>
+        <label><input type="radio" name="co-rate" value="passend" checked><span>Passend</span></label>
+        <label><input type="radio" name="co-rate" value="schwer"><span>Zu schwer</span></label>
+      </fieldset>
+      <label for="co-note" id="co-note-l">Notiz (optional)</label>
+      <textarea id="co-note" rows="3" placeholder="z. B. linke Hüfte zog bei der 90/90-Dehnung"></textarea>
+      <p id="co-warn" class="notice" hidden></p>
+      <button id="b-co-save" class="btn primary wide" type="button">Speichern</button>
+      <p id="co-msg" class="msg" role="status"></p>
+    </div>
+  </section>
+
+  <!-- Verlauf -->
+  <section id="v-dash" class="view" hidden>
+    <header class="top"><div class="brand"><span class="plumb" aria-hidden="true"></span><span>Verlauf</span></div>
+      <button id="b-export" class="btn small ghost" type="button">Daten exportieren</button></header>
+    <div class="wrap" id="dash"></div>
+  </section>
+
+  <!-- Einstellungen -->
+  <section id="v-settings" class="view" hidden>
+    <header class="top"><div class="brand"><span class="plumb" aria-hidden="true"></span><span>Einstellungen</span></div></header>
+    <div class="wrap settings">
+      <section class="card">
+        <h3>Meine Hilfsmittel</h3>
+        <p class="hint">Die Übungsvorschläge nutzen nur, was du hier auswählst.</p>
+        <div id="equip" class="chips"></div>
+      </section>
+      <section class="card">
+        <h3>Haltungsprüfung</h3>
+        <label for="s-tol">Toleranz</label>
+        <select id="s-tol"><option value="streng">Streng</option><option value="normal">Normal</option><option value="locker">Locker</option></select>
+        <label for="s-ref">Referenz für Schultern, Becken, Rumpf</label>
+        <select id="s-ref"><option value="kalibriert">Meine Kalibrierung (empfohlen bei Skoliose)</option><option value="symmetrisch">Symmetrisch (Lehrbuch-Ideal)</option></select>
+        <label for="s-goal">Zielkorrektur gegenüber deiner Ruhehaltung: <output id="s-goal-o">30 %</output></label>
+        <input id="s-goal" type="range" min="0" max="100" step="10" value="30">
+        <p class="hint">0 % = deine gemessene Ruhehaltung ist das Ziel. 100 % = volle Symmetrie. Steigere langsam.</p>
+        <div class="calib" id="calib-info"></div>
+        <label class="toggle"><input type="checkbox" id="s-check"><span>Haltungs-Check zu Beginn jeder Einheit</span></label>
+        <label class="toggle"><input type="checkbox" id="s-swap"><span>Links/rechts vertauschen (falls Ansagen seitenverkehrt sind)</span></label>
+      </section>
+      <section class="card">
+        <h3>Sprache &amp; Ton</h3>
+        <label for="s-voice">Stimme</label>
+        <select id="s-voice"></select>
+        <label for="s-rate">Sprechtempo <output id="s-rate-o">1,05</output></label>
+        <input id="s-rate" type="range" min="0.8" max="1.3" step="0.05" value="1.05">
+        <label class="toggle"><input type="checkbox" id="s-pvoice"><span>Haltungskorrekturen ansagen</span></label>
+        <label class="toggle"><input type="checkbox" id="s-camvoice"><span>Kameraposition ansagen</span></label>
+        <button id="b-voicetest" class="btn small ghost" type="button">Stimme testen</button>
+      </section>
+      <section class="card">
+        <h3>Kamera &amp; Erkennung</h3>
+        <label for="s-cam">Kamera</label>
+        <select id="s-cam"><option value="user">Frontkamera (Display sichtbar)</option><option value="environment">Rückkamera (bessere Qualität)</option></select>
+        <label for="s-model">Erkennungsmodell</label>
+        <select id="s-model"><option value="lite">Schnell (empfohlen fürs Handy)</option><option value="full">Genauer (braucht mehr Leistung)</option></select>
+        <label class="toggle"><input type="checkbox" id="s-floor"><span>Mittags auch Übungen am Boden</span></label>
+        <label for="s-int">Intensität <output id="s-int-o">100 %</output></label>
+        <input id="s-int" type="range" min="0.7" max="1.5" step="0.05" value="1">
+        <p class="hint">Passt sich nach jeder Einheit an deine Rückmeldung an.</p>
+      </section>
+      <section class="card" id="claude-card">
+        <h3>Zugang für Claude (Dev-Daten)</h3>
+        <p class="hint">Erzeugt einen befristeten Lese-Schlüssel. Damit kann Claude im Chat die Dev-Protokolle, Bilder und deinen Verlauf lesen, aber nichts ändern.</p>
+        <div class="btnrow">
+          <button id="b-share" class="btn small primary" type="button">Schlüssel für 7 Tage erzeugen</button>
+          <button id="b-unshare" class="btn small ghost" type="button">Alle Schlüssel widerrufen</button>
+        </div>
+        <textarea id="share-out" rows="4" readonly hidden></textarea>
+        <button id="b-share-copy" class="btn small ghost" type="button" hidden>Kopieren</button>
+      </section>
+      <section class="card">
+        <h3>Konto &amp; Speicher</h3>
+        <p id="acct-info" class="hint"></p>
+        <div class="btnrow">
+          <button id="b-sync" class="btn small ghost" type="button">Jetzt synchronisieren</button>
+          <button id="b-logout" class="btn small ghost" type="button">Abmelden</button>
+        </div>
+      </section>
+      <p class="hint center">Quellen der Übungen: Übungsblatt „Aktives Rückentraining“, gängige Physiotherapie-Übungen, Prinzipien skoliosespezifischer Übungen (aktive Selbstkorrektur, Atemlenkung). Keine medizinische Beratung.</p>
+    </div>
+  </section>
+
+  <nav class="tabs" id="tabs" hidden>
+    <button data-view="home" class="tab on" type="button">Training</button>
+    <button data-view="dash" class="tab" type="button">Verlauf</button>
+    <button data-view="settings" class="tab" type="button">Einstellungen</button>
+  </nav>
+  <div id="tooltip" class="tooltip" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
