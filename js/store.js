@@ -49,7 +49,7 @@ export class Store {
   }
 
   async signUp(email, password) {
-    const { data, error } = await this.client.auth.signUp({ email, password });
+    const { data, error } = await this.client.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
     if (error) throw error;
     this.user = data.session?.user || null;
     return data;
