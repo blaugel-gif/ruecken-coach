@@ -1,10 +1,11 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610191031';
-import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191031';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191031';
-import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191031';
-import { Speaker, SessionRunner } from './coach.js?v=202610191031';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191031';
-import { renderDashboard } from './dashboard.js?v=202610191031';
+import { EQUIPMENT, byId } from './exercises.js?v=202610191042';
+import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191042';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191042';
+import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191042';
+import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191042';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191042';
+import { renderDashboard } from './dashboard.js?v=202610191042';
+import * as neural from './neuralvoice.js?v=202610191042';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -215,7 +216,11 @@ async function startSession() {
   if (S.dev) S.dev.env = { ua: navigator.userAgent, screen: [screen.width, screen.height, devicePixelRatio], settings: { ...settings, calib: settings.calib }, plan: plan.items.map((i) => i.id), secure: window.isSecureContext, standalone: matchMedia('(display-mode: standalone)').matches };
   speaker.log = devLog;
   try { S.wake = await navigator.wakeLock?.request('screen'); } catch { /* optional */ }
-  await speaker.ready();
+  if (settings.voiceEngine === 'neural' && !(await neural.isInstalled())) {
+    devLog('neural_missing', {}); settings.voiceEngine = 'system'; toast('Eingebaute Stimme nicht gefunden – nutze Handy-Sprachausgabe.');
+  }
+  if (settings.voiceEngine === 'neural') speaker.prefetch(scriptTexts(plan, settings));
+  else await speaker.ready();
   devLog('permission_camera', { state: await cameraPermission() });
 
   await startCamera();
@@ -354,7 +359,7 @@ $('#b-heard-yes').addEventListener('click', () => {
 });
 $('#b-heard-no').addEventListener('click', () => {
   dcDiag(dcSpeaker.stats());
-  if (!ui.dcCompatTried) {
+  if (!ui.dcCompatTried && settings.voiceEngine !== 'neural') {
     // zweiter Versuch ohne feste Stimme, direkt in der Nutzergeste
     ui.dcCompatTried = true;
     saveDevcheck({ heard: false, mode: settings.speechCompat ? 'compat' : 'voice' });
@@ -366,7 +371,34 @@ $('#b-heard-no').addEventListener('click', () => {
   dcSet('voice', 'bad', 'Sprachansage: nicht hörbar');
   $('#dc-voice-ask').hidden = true;
   saveDevcheck({ heard: false, compatHeard: false });
+  if (settings.voiceEngine !== 'neural') $('#dc-neural').hidden = false;
   const h = $('#dc-help'); h.innerHTML = (h.hidden ? '' : h.innerHTML + '<hr>') + voiceHelp(dcSpeaker); h.hidden = false;
+});
+
+async function installNeural(statusEl, btn) {
+  // Audio sofort in der Tipp-Geste freischalten, sonst bleibt sie nach dem langen Download gesperrt
+  const sp = new Speaker({ ...settings, mute: false, voiceEngine: 'neural' }, (ev, d) => { if (ev === 'neural_error') statusEl.textContent = `Fehler: ${d.e}`; });
+  sp.unlock();
+  btn.disabled = true;
+  statusEl.textContent = 'Wird geladen …';
+  try {
+    await neural.install((f, txt) => { statusEl.textContent = `Download: ${Math.round(f * 100)} % (${txt})`; });
+    statusEl.textContent = 'Stimme wird getestet …';
+    settings.voiceEngine = 'neural';
+    await store.saveSettings(settings).catch(() => {});
+    sp.say('Hallo, ich bin deine eingebaute Stimme. Ab jetzt sage ich dir die Übungen an.');
+    statusEl.textContent = 'Fertig. Die eingebaute Stimme ist aktiv. Du solltest sie gleich hören (der erste Satz dauert ein paar Sekunden).';
+    renderSettings();
+    return true;
+  } catch (e) {
+    statusEl.textContent = `Download fehlgeschlagen: ${e?.message || e}. Prüfe die Internetverbindung und versuch es erneut.`;
+    return false;
+  } finally { btn.disabled = false; }
+}
+$('#b-dc-neural').addEventListener('click', async () => {
+  const ok = await installNeural($('#dc-neural-st'), $('#b-dc-neural'));
+  if (ok) { dcSet('voice', 'warn', 'Sprachansage: eingebaute Stimme – hörst du sie?'); $('#dc-voice-ask').hidden = false; ui.dcCompatTried = true; }
+  saveDevcheck({ neuralInstalled: ok });
 });
 
 function devLog(ev, data = {}) {
@@ -705,6 +737,11 @@ function renderSettings() {
   $('#s-int').value = settings.intensity; $('#s-int-o').textContent = `${Math.round(settings.intensity * 100)} %`;
   renderCalib();
   fillVoices();
+  $('#s-engine').value = settings.voiceEngine || 'system';
+  neural.isInstalled().then((ok) => {
+    $('#b-neural-install').hidden = ok; $('#b-neural-remove').hidden = !ok;
+    $('#neural-st').textContent = ok ? 'Eingebaute Stimme ist auf diesem Gerät gespeichert.' : 'Nutze die eingebaute Stimme, wenn die Sprachausgabe des Handys stumm bleibt.';
+  });
   $('#claude-card').hidden = !store.cloud;
   $('#acct-info').textContent = store.local ? 'Testmodus: Daten liegen nur in diesem Browser.' : store.user ? `Angemeldet als ${store.user.email}. ${store.queueLength ? store.queueLength + ' Einheit(en) warten auf Upload.' : 'Alles synchronisiert.'}` : '';
   $('#b-logout').textContent = store.local ? 'Cloud verbinden' : 'Abmelden';
@@ -735,6 +772,16 @@ bind('#s-goal', (e) => { settings.correctionGoal = +e.target.value / 100; $('#s-
 bind('#s-check', (e) => { settings.postureCheck = e.target.checked; persist(); });
 bind('#s-swap', (e) => { settings.swapSides = e.target.checked; persist(); });
 bind('#s-voice', (e) => { settings.voiceName = e.target.value; persist(); });
+bind('#s-engine', async (e) => {
+  if (e.target.value === 'neural' && !(await neural.isInstalled())) {
+    e.target.value = settings.voiceEngine || 'system';
+    await installNeural($('#neural-st'), $('#b-neural-install'));
+    return;
+  }
+  settings.voiceEngine = e.target.value; persist();
+});
+bind('#b-neural-install', () => installNeural($('#neural-st'), $('#b-neural-install')), 'click');
+bind('#b-neural-remove', async () => { await neural.uninstall(); settings.voiceEngine = 'system'; persist(); renderSettings(); toast('Eingebaute Stimme gelöscht.'); }, 'click');
 bind('#s-rate', (e) => { settings.speechRate = +e.target.value; $('#s-rate-o').textContent = e.target.value.replace('.', ','); persist(); }, 'input');
 bind('#s-pvoice', (e) => { settings.postureVoice = e.target.checked; persist(); });
 bind('#s-camvoice', (e) => { settings.speakCamera = e.target.checked; persist(); });

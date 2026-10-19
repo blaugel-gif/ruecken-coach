@@ -1,6 +1,8 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js?v=202610191031';
-import { cameraText } from './camera-svg.js?v=202610191031';
+import { byId } from './exercises.js?v=202610191042';
+import { cameraText } from './camera-svg.js?v=202610191042';
+import { CHECKS } from './pose.js?v=202610191042';
+import * as neural from './neuralvoice.js?v=202610191042';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
@@ -22,6 +24,7 @@ export class Speaker {
     this.cancelledAt = 0;
     this.started = 0; this.errors = 0; this.lastError = null;
     this.supported = 'speechSynthesis' in window;
+    this.q = []; this.gen = 0; this.playing = null; this.pumping = false; this.buffers = new Map();
     this.pickVoice();
     if (this.supported) speechSynthesis.addEventListener?.('voiceschanged', () => this.pickVoice());
   }
@@ -41,12 +44,13 @@ export class Speaker {
     this.pickVoice();
     this.log('speech_ready', { voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, local: this.voice?.localService ?? null });
   }
+  get neural() { return this.settings.voiceEngine === 'neural'; }
   unlock() {
     try {
       this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
       this.ctx.resume?.();
     } catch { /* ohne Ton weiter */ }
-    if (this.supported) {
+    if (this.supported && !this.neural) {
       try {
         speechSynthesis.resume();
         // Kurze hörbare Ansage innerhalb der Nutzergeste schaltet die Sprachausgabe frei
@@ -54,7 +58,76 @@ export class Speaker {
       } catch (e) { this.log('speech_unlock_error', { e: String(e) }); }
     }
   }
-  get busy() { return this.supported && (speechSynthesis.speaking || speechSynthesis.pending); }
+  get busy() {
+    if (this.neural) return !!this.playing || this.pumping || this.q.length > 0;
+    return this.supported && (speechSynthesis.speaking || speechSynthesis.pending);
+  }
+
+  // ── Eingebaute Stimme ──
+  async _buffer(text) {
+    if (this.buffers.has(text)) return this.buffers.get(text);
+    const blob = await neural.synthBlob(text);
+    const buf = await this.ctx.decodeAudioData(await blob.arrayBuffer());
+    this.buffers.set(text, buf);
+    return buf;
+  }
+  _playBuf(buf) {
+    return new Promise((res) => {
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.playbackRate.value = Math.min(1.25, Math.max(0.85, this.settings.speechRate || 1.05));
+      const g = this.ctx.createGain(); g.gain.value = 1;
+      src.connect(g).connect(this.ctx.destination);
+      src.onended = () => { if (this.playing === src) this.playing = null; res(); };
+      this.playing = src;
+      this.started++;
+      src.start();
+      this.lastSpoke = performance.now();
+    });
+  }
+  async _pump() {
+    if (this.pumping) return;
+    this.pumping = true;
+    try {
+      while (this.q.length) {
+        const it = this.q.shift();
+        if (it.gen !== this.gen) continue;
+        let buf;
+        try { buf = await this._buffer(it.text); }
+        catch (e) {
+          this.errors++; this.lastError = String(e?.message || e);
+          this.log('neural_error', { e: this.lastError, text: it.text.slice(0, 40) });
+          continue;
+        }
+        if (it.gen !== this.gen || this.settings.mute) continue;
+        await this._playBuf(buf);
+        this.ended = (this.ended || 0) + 1;
+      }
+    } finally { this.pumping = false; }
+  }
+  _sayNeural(text, interrupt) {
+    if (!this.ctx) this.unlock();
+    if (interrupt) this._stopNeural();
+    this.q.push({ text, gen: this.gen });
+    this._pump();
+  }
+  _stopNeural() {
+    this.gen++; this.q = [];
+    try { this.playing?.stop(); } catch { /* */ }
+    this.playing = null;
+  }
+  // Sätze im Hintergrund vorbereiten, damit sie ohne Verzögerung kommen
+  async prefetch(texts) {
+    if (!this.neural) return;
+    const t0 = performance.now(); let n = 0;
+    for (const t of texts) {
+      if (this.buffers.has(t)) continue;
+      // nicht mit laufender Wiedergabe-Erzeugung konkurrieren
+      while (this.pumping && this.q.length) await new Promise((r) => setTimeout(r, 200));
+      try { await this._buffer(t); n++; } catch (e) { this.log('neural_prefetch_error', { e: String(e?.message || e) }); break; }
+    }
+    this.log('neural_prefetch', { n, ms: Math.round(performance.now() - t0) });
+  }
   _speak(text, retried = false) {
     const u = new SpeechSynthesisUtterance(text);
     // Kompatibilitätsmodus: keine Stimme vorgeben, nur Sprache (hilft bei manchen Android-Geräten)
@@ -84,7 +157,9 @@ export class Speaker {
     this.lastSpoke = performance.now();
   }
   say(text, { interrupt = false } = {}) {
-    if (!text || this.settings.mute || !this.supported) return;
+    if (!text || this.settings.mute) return;
+    if (this.neural) { this._sayNeural(text, interrupt); return; }
+    if (!this.supported) return;
     if (interrupt && this.busy) {
       speechSynthesis.cancel();
       this.cancelledAt = performance.now();
@@ -92,8 +167,11 @@ export class Speaker {
     const wait = Math.max(0, 180 - (performance.now() - this.cancelledAt));
     if (wait > 0) setTimeout(() => this._speak(text), wait); else this._speak(text);
   }
-  stop() { if (this.supported) { speechSynthesis.cancel(); this.cancelledAt = performance.now(); } }
-  stats() { return { supported: this.supported, compat: !!this.settings.speechCompat, switchedToCompat: !!this.switchedToCompat, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, voiceLang: this.voice?.lang || null, local: this.voice?.localService ?? null, started: this.started, ended: this.ended || 0, errors: this.errors, lastError: this.lastError, speaking: this.supported ? speechSynthesis.speaking : null, paused: this.supported ? speechSynthesis.paused : null }; }
+  stop() {
+    if (this.neural) { this._stopNeural(); return; }
+    if (this.supported) { speechSynthesis.cancel(); this.cancelledAt = performance.now(); }
+  }
+  stats() { return { engine: this.neural ? 'neural' : 'system', cached: this.buffers.size, supported: this.supported, compat: !!this.settings.speechCompat, switchedToCompat: !!this.switchedToCompat, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, voiceLang: this.voice?.lang || null, local: this.voice?.localService ?? null, started: this.started, ended: this.ended || 0, errors: this.errors, lastError: this.lastError, speaking: this.supported ? speechSynthesis.speaking : null, paused: this.supported ? speechSynthesis.paused : null }; }
   beep(freq = 880, ms = 120, vol = 0.18) {
     if (this.settings.mute || !this.ctx) return;
     try {
@@ -104,6 +182,23 @@ export class Speaker {
       o.connect(g).connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + ms / 1000 + 0.02);
     } catch { /* ignorieren */ }
   }
+}
+
+// Alle Sätze, die in einer Einheit gesprochen werden können (für die eingebaute Stimme vorbereiten)
+export function scriptTexts(plan, settings) {
+  const out = [];
+  const add = (t) => { if (t && !out.includes(t)) out.push(t); };
+  const rec = { say: add, beep() {}, stop() {}, busy: false };
+  const r = new SessionRunner({ plan, settings: { ...settings, prep: 10 }, speaker: rec });
+  r.steps.forEach((st, i) => {
+    r.announce(st);
+    if (st.kind === 'prep' && i > 0) add(`Danach: ${byId[st.item.id].name}.`);
+    if (st.kind === 'prep' && i === 1) add('Deine Ausgangshaltung ist jetzt als Referenz gespeichert.');
+  });
+  ['Noch zehn Sekunden.', 'Gleich geht es weiter.', 'Gut so.', 'Ich sehe dich nicht. Bitte ganz ins Bild.',
+    'Pause. Tippe auf Weiter, wenn du bereit bist.', 'Weiter.', '10 Sekunden mehr.'].forEach(add);
+  for (const c of Object.values(CHECKS)) { add(c.cueHigh); add(c.cueLow); }
+  return out;
 }
 
 // Ablauf in Schritte zerlegen

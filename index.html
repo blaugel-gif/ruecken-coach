@@ -6,14 +6,15 @@
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121716" media="(prefers-color-scheme: dark)">
 <title>Rücken-Coach</title>
-<meta name="app-version" content="202610191031">
+<meta name="app-version" content="202610191042">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="img/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
-<link rel="stylesheet" href="css/app.css?v=202610191031">
+<link rel="stylesheet" href="css/app.css?v=202610191042">
+<script type="importmap">{"imports":{"onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js"}}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 </head>
 <body>
@@ -111,6 +112,11 @@
         <div class="dc-row"><span class="dc-dot" id="dc-voice-dot"></span><span id="dc-voice">Sprachansage: noch nicht geprüft</span></div>
         <p class="hint" id="dc-diag" hidden></p>
         <video id="dc-video" playsinline muted hidden></video>
+        <div id="dc-neural" class="notice" hidden>
+          <p><strong>Lösung: eingebaute Stimme.</strong> Sie läuft direkt in der App und braucht die Sprachausgabe des Handys nicht. Einmaliger Download ca. 60 MB (am besten im WLAN), danach auch offline.</p>
+          <button id="b-dc-neural" class="btn small primary" type="button">Eingebaute Stimme laden</button>
+          <p class="hint" id="dc-neural-st"></p>
+        </div>
         <div id="dc-help" class="notice" hidden></div>
         <div class="btnrow" id="dc-voice-ask" hidden>
           <button id="b-heard-yes" class="btn small ghost" type="button">Stimme gehört</button>
@@ -243,7 +249,14 @@
       </section>
       <section class="card">
         <h3>Sprache &amp; Ton</h3>
-        <label for="s-voice">Stimme</label>
+        <label for="s-engine">Sprachausgabe</label>
+        <select id="s-engine"><option value="system">Sprachausgabe des Handys</option><option value="neural">Eingebaute Stimme (Thorsten)</option></select>
+        <div class="btnrow" id="neural-row">
+          <button id="b-neural-install" class="btn small ghost" type="button">Eingebaute Stimme laden (ca. 60 MB)</button>
+          <button id="b-neural-remove" class="btn small ghost" type="button" hidden>Eingebaute Stimme löschen</button>
+        </div>
+        <p class="hint" id="neural-st"></p>
+        <label for="s-voice">Stimme der Handy-Sprachausgabe</label>
         <select id="s-voice"></select>
         <label for="s-rate">Sprechtempo <output id="s-rate-o">1,05</output></label>
         <input id="s-rate" type="range" min="0.8" max="1.3" step="0.05" value="1.05">
@@ -292,6 +305,6 @@
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=202610191031"></script>
+<script type="module" src="js/app.js?v=202610191042"></script>
 </body>
 </html>
