@@ -1,12 +1,12 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610191548';
-import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191548';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191548';
-import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191548';
-import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191548';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191548';
-import { renderDashboard } from './dashboard.js?v=202610191548';
-import * as neural from './neuralvoice.js?v=202610191548';
-import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610191548';
+import { EQUIPMENT, byId } from './exercises.js?v=202610191633';
+import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191633';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191633';
+import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191633';
+import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610191633';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191633';
+import { renderDashboard } from './dashboard.js?v=202610191633';
+import * as neural from './neuralvoice.js?v=202610191633';
+import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610191633';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -465,7 +465,8 @@ function onStep(step) {
     renderRepDots(step.idx);
   }
   if (!showMini && S.stopMiniAnim) { S.stopMiniAnim(); S.stopMiniAnim = null; S.miniFor = null; }
-  if (showMini) renderMotionPhases(mot);
+  if (showMini) { renderMotionPhases(mot); renderRepDots(step.idx); }
+  if (!showMini) { $('#far-phases').innerHTML = ''; }
   $('#hud-cue').textContent = step.kind === 'work' && step.item ? byId[step.item.id].cue : '';
 
   const it = step.item;
@@ -540,6 +541,7 @@ function loop() {
   S.P = lm ? toPoints(lm, cv.width, cv.height, settings.swapSides) : null;
   S.metrics = S.P ? computeMetrics(S.P) : null;
   if (S.metrics && S.roll !== null) S.metrics.roll = Math.round(S.roll * 10) / 10;
+  if (S.metrics && S.dist) S.metrics.dist = Math.round(S.dist * 100) / 100;
   S.results = S.evaluator ? S.evaluator.update(S.metrics, now) : [];
   drawOverlay(cv.getContext('2d'), S.P, S.metrics, step && ['work', 'check', 'prep'].includes(step.kind) ? S.results : [], OVERLAY_COLORS);
 
@@ -596,6 +598,10 @@ function loop() {
 }
 
 function updateHud(step, now) {
+  const dd = estimateDistance(S.P, $('#overlay').width, $('#overlay').height);
+  if (dd) S.dist = S.dist ? S.dist + 0.05 * (dd - S.dist) : dd;
+  if (now - (S.lastFarScale || 0) > 1000) { S.lastFarScale = now; updateFarScale(); }
+  renderFar(step, now);
   const active = step.kind === 'work' || step.kind === 'check';
   const rel = S.results.filter((r) => ['ok', 'warn', 'bad'].includes(r.status));
   const worst = rel.some((r) => r.status === 'bad') ? 'bad' : rel.some((r) => r.status === 'warn') ? 'warn' : rel.length ? 'ok' : '';
@@ -618,6 +624,79 @@ function updateHud(step, now) {
       vc.className = `viewcheck ${ok && !tilted ? 'ok' : 'bad'}`;
     }
   }
+}
+
+// Kurze Korrekturen für die Fernansicht (2–3 Wörter): [zu hoch, zu niedrig]
+const SHORT = {
+  shouldersLevel: ['Linke Schulter tiefer', 'Rechte Schulter tiefer'],
+  pelvisLevel: ['Becken links tiefer', 'Becken rechts tiefer'],
+  trunkCentered: ['Oberkörper nach rechts', 'Oberkörper nach links'],
+  headCentered: ['Kopf nach rechts', 'Kopf nach links'],
+  armsSymmetric: ['Linker Ellbogen höher', 'Rechter Ellbogen höher'],
+  wristsSymmetric: ['Linke Hand höher', 'Rechte Hand höher'],
+  trunkUpright: ['Aufrichten', 'Nicht zurücklehnen'],
+  earOverShoulder: ['Kinn zurück', null],
+  backFlat: ['Rücken gerade', null],
+  handsUnderShoulders: ['Hände unter Schultern', null],
+  kneesUnderHips: ['Knie unter Hüfte', null],
+  hipExtended: [null, 'Becken höher'],
+  kneesSoft: ['Knie leicht beugen', 'Knie strecken'],
+  armLevel: ['Arm tiefer', 'Arm höher'],
+  legLevel: ['Bein tiefer', 'Bein höher'],
+};
+const shortPhase = (label) => label.split(/[,:–]/)[0].split(' ').slice(0, 3).join(' ');
+
+// Abstand zur Kamera grob aus der Rumpflänge im Bild schätzen (Rumpf ≈ 0,5 m, Bildwinkel ≈ 60°)
+function estimateDistance(P, vw, vh) {
+  if (!P || P[11].v < 0.5 || P[23].v < 0.5) return null;
+  const sx = (P[11].x + P[12].x) / 2, sy = (P[11].y + P[12].y) / 2, hx = (P[23].x + P[24].x) / 2, hy = (P[23].y + P[24].y) / 2;
+  const f = Math.hypot(sx - hx, sy - hy) / Math.max(vw, vh);
+  if (f < 0.02) return null;
+  return Math.max(0.8, Math.min(4.5, 0.5 / (f * 1.155)));
+}
+function updateFarScale() {
+  const mode = settings.farView || 'auto';
+  const stage = $('#stage');
+  stage.classList.toggle('farmode', mode !== 'off');
+  if (mode === 'off') return;
+  const pxPerMm = Math.min(window.innerWidth, window.innerHeight) / 68; // Handybreite ≈ 68 mm
+  let d = mode === 'xl' ? 3.2 : mode === 'l' ? 2.4 : (S.dist ?? 2.3);
+  const mm = Math.max(6, Math.min(14, d * 3.6)); // ~3,6 mm Zeichenhöhe pro Meter
+  const px = Math.round(Math.min(mm * pxPerMm, Math.min(window.innerWidth, window.innerHeight * 1.1) / 10.5));
+  if (px !== S.farPx) { S.farPx = px; stage.style.setProperty('--far', `${px}px`); }
+}
+function renderFar(step, now) {
+  const far = $('#far');
+  const active = ['work', 'rest', 'switch'].includes(step.kind) && (settings.farView || 'auto') !== 'off';
+  far.hidden = !active; $('#far-bottom').hidden = !active;
+  if (!active) return;
+  const st = $('#far-status');
+  let cls = 'info', txt = '';
+  if (step.kind === 'work') {
+    if (!S.metrics && now - S.lastSeen > 2000) { cls = 'warn'; txt = 'Ganz ins Bild'; }
+    else {
+      const bad = S.results.filter((r) => r.status === 'bad').sort((a, b) => b.badFor - a.badFor)[0];
+      const warn = S.results.find((r) => r.status === 'warn');
+      const pick = bad || warn;
+      const short = pick ? SHORT[pick.id]?.[pick.dir > 0 ? 0 : 1] : null;
+      if (pick && short) { cls = bad ? 'bad' : 'warn'; txt = short; }
+      else if (S.tracker && S.tracker.motion.kind === 'cycle') {
+        const ph = S.tracker.motion.phases[S.tracker.seq];
+        cls = 'info'; txt = shortPhase(ph.label);
+      } else if (S.results.some((r) => r.status === 'ok')) { cls = 'ok'; txt = '✓ Gut so'; }
+      else { cls = 'info'; txt = step.item.type === 'hold' ? 'Halten' : 'Weiter so'; }
+    }
+  } else {
+    const last = S.items[step.idx]?.repResults.at(-1);
+    if (last && last.score !== null) {
+      cls = last.score >= 0.8 ? 'ok' : last.score >= 0.6 ? 'warn' : 'bad';
+      const mot = MOTIONS[step.item.id];
+      const miss = mot?.phases.find((p) => last.phases[p.id] === false);
+      txt = `${Math.round(last.score * 100)} %` + (miss ? ` · ${shortPhase(miss.label)} fehlte` : '');
+    } else { cls = 'info'; txt = step.kind === 'switch' ? 'Seitenwechsel' : 'Pause'; }
+  }
+  if (st.textContent !== txt) st.textContent = txt;
+  if (st.className !== `far-status ${cls}`) st.className = `far-status ${cls}`;
 }
 
 function finalizeRep(step, nextStep) {
@@ -655,6 +734,13 @@ function renderMotionPhases(mot) {
     }
     return `<li class="${cls}">${esc(p.label)}</li>`;
   }).join('') + (working && mot.kind === 'cycle' ? `<li class="na">Durchgänge: ${t.cycles}${t.item ? ' / ~' + Math.max(1, Math.floor(t.item.hold / (mot.cycleSec || 4))) : ''}</li>` : '');
+  const farHtml = mot.phases.map((p, i) => {
+    let cls = '';
+    if (working) { cls = t.reached[p.id] ? 'done' : (mot.kind === 'cycle' ? t.seq === i : t.live[p.id] === false) ? 'live' : ''; }
+    else if (last) cls = last.phases[p.id] === true ? 'done' : last.phases[p.id] === false ? 'miss' : 'na';
+    return `<div class="far-ph ${cls}"><b>${working && t.reached[p.id] ? '✓' : i + 1}</b><span>${esc(shortPhase(p.label))}</span></div>`;
+  }).join('');
+  const fp = $('#far-phases'); if (fp.innerHTML !== farHtml) fp.innerHTML = farHtml;
 }
 
 function renderRepDots(idx) {
@@ -666,6 +752,13 @@ function renderRepDots(idx) {
     return `<i class="${c}" title="${r?.score != null ? Math.round(r.score * 100) + ' %' : ''}"></i>`;
   }).join('');
   $('#motion-reps').innerHTML = `<span>Wdh.</span>${dots}`;
+  const cur = S.runner?.step;
+  const curIdx = cur?.kind === 'work' && cur.idx === idx ? cur.side * it.reps + cur.rep : -1;
+  $('#far-reps').innerHTML = Array.from({ length: total }, (_, i) => {
+    const r = it.repResults[i];
+    const c = !r || r.score === null ? (i === curIdx ? 'cur' : '') : r.score >= 0.8 ? 'g' : r.score >= 0.6 ? 'y' : 'r';
+    return `<i class="${c}"></i>`;
+  }).join('');
 }
 
 function showCue(text) {
@@ -864,6 +957,7 @@ function renderSettings() {
   $('#s-check').checked = settings.postureCheck !== false; $('#s-confirm').checked = settings.confirmEach !== false; $('#s-swap').checked = !!settings.swapSides;
   $('#s-rate').value = settings.speechRate; $('#s-rate-o').textContent = String(settings.speechRate).replace('.', ',');
   $('#s-pvoice').checked = settings.postureVoice !== false; $('#s-camvoice').checked = settings.speakCamera !== false;
+  $('#s-far').value = settings.farView || 'auto';
   $('#s-cam').value = settings.camera; $('#s-model').value = settings.model; $('#s-floor').checked = settings.floorAtNoon !== false;
   $('#s-int').value = settings.intensity; $('#s-int-o').textContent = `${Math.round(settings.intensity * 100)} %`;
   renderCalib();
@@ -918,6 +1012,7 @@ bind('#s-rate', (e) => { settings.speechRate = +e.target.value; $('#s-rate-o').t
 bind('#s-pvoice', (e) => { settings.postureVoice = e.target.checked; persist(); });
 bind('#s-camvoice', (e) => { settings.speakCamera = e.target.checked; persist(); });
 bind('#s-cam', (e) => { settings.camera = e.target.value; persist(); });
+bind('#s-far', (e) => { settings.farView = e.target.value; persist(); });
 bind('#s-model', (e) => { settings.model = e.target.value; persist(); });
 bind('#s-floor', (e) => { settings.floorAtNoon = e.target.checked; persist(); });
 bind('#s-int', (e) => { settings.intensity = +e.target.value; $('#s-int-o').textContent = `${Math.round(settings.intensity * 100)} %`; persist(); }, 'input');

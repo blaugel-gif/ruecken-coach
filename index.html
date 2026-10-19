@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121716" media="(prefers-color-scheme: dark)">
 <title>Rücken-Coach</title>
-<meta name="app-version" content="202610191548">
+<meta name="app-version" content="202610191633">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="img/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
-<link rel="stylesheet" href="css/app.css?v=202610191548">
+<link rel="stylesheet" href="css/app.css?v=202610191633">
 <script type="importmap">{"imports":{"onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js"}}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 </head>
@@ -148,6 +148,13 @@
       <div class="hud-timer">
         <span class="timer" id="timer">0</span>
         <span class="reps" id="reps"></span>
+      </div>
+      <div class="far" id="far" hidden>
+        <div class="far-status" id="far-status"></div>
+      </div>
+      <div class="far-bottom" id="far-bottom" hidden>
+        <div class="far-phases" id="far-phases"></div>
+        <div class="far-reps" id="far-reps"></div>
       </div>
       <div class="motion" id="motion" hidden>
         <canvas id="motion-anim" width="240" height="240" aria-label="Soll-Bewegung"></canvas>
@@ -285,6 +292,8 @@
         <h3>Kamera &amp; Erkennung</h3>
         <label for="s-cam">Kamera</label>
         <select id="s-cam"><option value="user">Frontkamera (Display sichtbar)</option><option value="environment">Rückkamera (bessere Qualität)</option></select>
+        <label for="s-far">Fernansicht während der Übung</label>
+        <select id="s-far"><option value="auto">Automatisch nach Abstand</option><option value="l">Groß</option><option value="xl">Sehr groß</option><option value="off">Aus (kleine Detailansicht)</option></select>
         <label for="s-model">Erkennungsmodell</label>
         <select id="s-model"><option value="lite">Schnell (empfohlen fürs Handy)</option><option value="full">Genauer (braucht mehr Leistung)</option></select>
         <label class="toggle"><input type="checkbox" id="s-floor"><span>Mittags auch Übungen am Boden</span></label>
@@ -322,6 +331,6 @@
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=202610191548"></script>
+<script type="module" src="js/app.js?v=202610191633"></script>
 </body>
 </html>

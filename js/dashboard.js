@@ -1,6 +1,6 @@
 // Dashboard: Kennzahlen und Verläufe aus den gespeicherten Einheiten
-import { byId } from './exercises.js?v=202610191548';
-import { CHECKS } from './pose.js?v=202610191548';
+import { byId } from './exercises.js?v=202610191633';
+import { CHECKS } from './pose.js?v=202610191633';
 
 const DAY = 864e5;
 const dkey = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };

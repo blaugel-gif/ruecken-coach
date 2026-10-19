@@ -389,7 +389,7 @@ function drawGuide(ctx, P, m, r, colors, lw) {
 // Kompakte Momentaufnahme der Metriken (für Speicherung)
 export function compactMetrics(m) {
   if (!m) return null;
-  const keys = ['shoulderTilt', 'hipTilt', 'shoulderHipDiff', 'trunkShift', 'headShift', 'elbowDiff', 'wristDiff', 'trunkLean', 'hipAngle', 'kneeAngle', 'earForward', 'torsoFromHorizontal', 'armLevel', 'legLevel', 'wristsAboveHead', 'wristsAtShoulder', 'armsU', 'wristSpread', 'kneeLift', 'kneeOut', 'pelvisShift', 'footLift', 'neckLen', 'headDrop', 'wristAboveShoulder', 'hipAngleMin', 'hipAngleMax', 'kneeAngleMax', 'hipToAnkleY'];
+  const keys = ['roll', 'dist', 'shoulderTilt', 'hipTilt', 'shoulderHipDiff', 'trunkShift', 'headShift', 'elbowDiff', 'wristDiff', 'trunkLean', 'hipAngle', 'kneeAngle', 'earForward', 'torsoFromHorizontal', 'armLevel', 'legLevel', 'wristsAboveHead', 'wristsAtShoulder', 'armsU', 'wristSpread', 'kneeLift', 'kneeOut', 'pelvisShift', 'footLift', 'neckLen', 'headDrop', 'wristAboveShoulder', 'hipAngleMin', 'hipAngleMax', 'kneeAngleMax', 'hipToAnkleY'];
   const o = {};
   for (const k of keys) if (m[k] !== null && m[k] !== undefined && Number.isFinite(m[k])) o[k] = Math.round(m[k] * 100) / 100;
   return o;
