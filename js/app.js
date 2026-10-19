@@ -232,11 +232,11 @@ async function openCamera() {
 function cameraHelp(e) {
   const n = e?.name || '';
   if (n === 'NotAllowedError' || n === 'SecurityError') {
-    return `<p><strong>Der Browser blockiert die Kamera für diese Seite.</strong> So gibst du sie frei:</p>
-      <ol><li>Tippe in der Adressleiste links neben der Adresse auf das Symbol (ⓘ oder Schieberegler).</li>
-      <li><strong>Berechtigungen → Kamera → Zulassen</strong>.</li>
-      <li>Steht dort nichts: Android-<strong>Einstellungen → Apps → Chrome → Berechtigungen → Kamera</strong> → „Nur während der Nutzung zulassen“.</li>
-      <li>Seite neu laden.</li></ol>`;
+    return `<p><strong>Chrome selbst darf die Kamera nicht benutzen.</strong> Das ist eine Android-Einstellung, nicht die der Webseite:</p>
+      <ol><li>Chrome-Menü (⋮) → <strong>Einstellungen → Website-Einstellungen → Kamera</strong>.</li>
+      <li>Unten auf den roten Link <strong>„Android-Einstellungen“</strong> tippen.</li>
+      <li><strong>Berechtigungen → Kamera → „Nur während der Nutzung der App zulassen“</strong>.</li>
+      <li>Zurück zur App, Seite neu laden, beim Start auf <strong>Zulassen</strong> tippen.</li></ol>`;
   }
   if (n === 'NotReadableError') return '<p><strong>Die Kamera ist belegt.</strong> Schließ andere Apps, die die Kamera nutzen (Videoanruf, Kamera-App), und versuch es erneut.</p>';
   if (n === 'NotFoundError' || n === 'OverconstrainedError') return '<p><strong>Keine passende Kamera gefunden.</strong> Stell in den Einstellungen die andere Kamera ein (Front/Rück).</p>';
@@ -280,10 +280,11 @@ function dcSet(which, cls, text) { $(`#dc-${which}-dot`).className = `dc-dot ${c
 function voiceHelp(sp) {
   const noDe = sp && sp.supported && sp.voicesCount > 0 && sp.deVoices === 0;
   return `<p><strong>${noDe ? 'Auf dem Handy ist keine deutsche Stimme installiert.' : 'Die Sprachausgabe des Handys bleibt stumm.'}</strong> So richtest du sie ein:</p>
-    <ol><li>Android-<strong>Einstellungen → System → Sprachen &amp; Eingabe → Sprachausgabe</strong> (heißt je nach Gerät auch „Text-in-Sprache“).</li>
-    <li>Bevorzugte Engine: <strong>Sprachdienste von Google</strong>. Falls nicht vorhanden: im Play Store „Speech Services by Google“ installieren.</li>
-    <li>Sprache <strong>Deutsch</strong> wählen und bei Bedarf die Sprachdaten herunterladen. Mit „Beispiel anhören“ testen.</li>
-    <li>Medienlautstärke am Handy hochdrehen, dann Chrome komplett schließen und die App neu öffnen.</li></ol>`;
+    <p>Das ist eine Einstellung von Android, nicht von Chrome (die „Sprachen“ in Chrome sind dafür nicht zuständig).</p>
+    <ol><li>Android-<strong>Einstellungen</strong> öffnen und oben in die Suche <strong>„Sprachausgabe“</strong> eintippen (manche Geräte: „Text-in-Sprache“ oder „TTS“).</li>
+    <li>Bevorzugte Engine: <strong>Sprachdienste von Google</strong>. Fehlt sie: im Play Store „Speech Services by Google“ installieren oder aktualisieren.</li>
+    <li>Über das Zahnrad neben der Engine → <strong>Sprachdaten installieren → Deutsch (Deutschland)</strong> herunterladen.</li>
+    <li>Mit <strong>„Beispiel anhören“</strong> testen, Medienlautstärke hochdrehen, Chrome ganz schließen und die App neu öffnen.</li></ol>`;
 }
 function stopDc() { dcStream?.getTracks().forEach((t) => t.stop()); dcStream = null; $('#dc-video').hidden = true; }
 
