@@ -1,6 +1,6 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js';
-import { cameraText } from './camera-svg.js';
+import { byId } from './exercises.js?v=202610191025';
+import { cameraText } from './camera-svg.js?v=202610191025';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
@@ -55,7 +55,7 @@ export class Speaker {
     }
   }
   get busy() { return this.supported && (speechSynthesis.speaking || speechSynthesis.pending); }
-  _speak(text) {
+  _speak(text, retried = false) {
     const u = new SpeechSynthesisUtterance(text);
     // Kompatibilitätsmodus: keine Stimme vorgeben, nur Sprache (hilft bei manchen Android-Geräten)
     if (this.settings.speechCompat) { u.lang = 'de-DE'; }
@@ -69,7 +69,15 @@ export class Speaker {
       this.alive.delete(u);
       if (ev.error === 'interrupted' || ev.error === 'canceled') return;
       this.errors++; this.lastError = ev.error;
-      this.log('speech_error', { error: ev.error, text: text.slice(0, 40) });
+      this.log('speech_error', { error: ev.error, text: text.slice(0, 40), compat: !!this.settings.speechCompat });
+      // Android: „synthesis-failed“ tritt oft auf, wenn eine feste Stimme vorgegeben ist.
+      // Einmal automatisch ohne feste Stimme wiederholen und dabei bleiben.
+      if (!this.settings.speechCompat && !retried) {
+        this.settings.speechCompat = true;
+        this.switchedToCompat = true;
+        this.log('speech_compat_on', {});
+        this._speak(text, true);
+      }
     };
     if (speechSynthesis.paused) speechSynthesis.resume();
     speechSynthesis.speak(u);
@@ -85,7 +93,7 @@ export class Speaker {
     if (wait > 0) setTimeout(() => this._speak(text), wait); else this._speak(text);
   }
   stop() { if (this.supported) { speechSynthesis.cancel(); this.cancelledAt = performance.now(); } }
-  stats() { return { supported: this.supported, compat: !!this.settings.speechCompat, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, voiceLang: this.voice?.lang || null, local: this.voice?.localService ?? null, started: this.started, ended: this.ended || 0, errors: this.errors, lastError: this.lastError, speaking: this.supported ? speechSynthesis.speaking : null, paused: this.supported ? speechSynthesis.paused : null }; }
+  stats() { return { supported: this.supported, compat: !!this.settings.speechCompat, switchedToCompat: !!this.switchedToCompat, voices: this.voicesCount, de: this.deVoices, voice: this.voice?.name || null, voiceLang: this.voice?.lang || null, local: this.voice?.localService ?? null, started: this.started, ended: this.ended || 0, errors: this.errors, lastError: this.lastError, speaking: this.supported ? speechSynthesis.speaking : null, paused: this.supported ? speechSynthesis.paused : null }; }
   beep(freq = 880, ms = 120, vol = 0.18) {
     if (this.settings.mute || !this.ctx) return;
     try {

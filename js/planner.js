@@ -1,4 +1,4 @@
-import { EXERCISES, exerciseDuration } from './exercises.js';
+import { EXERCISES, exerciseDuration } from './exercises.js?v=202610191025';
 
 export const MODES = {
   10: { minutes: 10, label: 'Basis', when: 'morgens', budget: 600, prep: 10 },

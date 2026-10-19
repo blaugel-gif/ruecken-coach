@@ -1,10 +1,10 @@
-import { EQUIPMENT, byId } from './exercises.js';
-import { suggestions, MODES, defaultModeForHour } from './planner.js';
-import { cameraSetupSVG, cameraText } from './camera-svg.js';
-import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js';
-import { Speaker, SessionRunner } from './coach.js';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js';
-import { renderDashboard } from './dashboard.js';
+import { EQUIPMENT, byId } from './exercises.js?v=202610191025';
+import { suggestions, MODES, defaultModeForHour } from './planner.js?v=202610191025';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610191025';
+import { loadPoseModel, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610191025';
+import { Speaker, SessionRunner } from './coach.js?v=202610191025';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610191025';
+import { renderDashboard } from './dashboard.js?v=202610191025';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -33,7 +33,22 @@ function show(view) {
 }
 
 // ── Start ───────────────────────────────────────────────
+// Neue Version vorhanden? Dann einmal neu laden (Handys halten sonst die alte Version im Cache)
+async function checkVersion() {
+  try {
+    const mine = document.querySelector('meta[name="app-version"]')?.content;
+    const live = (await (await fetch(`version.txt?t=${Date.now()}`, { cache: 'no-store' })).text()).trim();
+    if (live && mine && live !== mine && sessionStorage.getItem('rc_reloaded') !== live) {
+      sessionStorage.setItem('rc_reloaded', live);
+      location.reload();
+      return true;
+    }
+  } catch { /* offline: weiter mit dieser Version */ }
+  return false;
+}
+
 async function boot() {
+  if (await checkVersion()) return;
   if (!store.configured) { show('setup'); return; }
   try { await store.init(); } catch (e) { show('setup'); setMsg('#setup-msg', e.message, true); return; }
   if (!store.local && !store.user) { show('auth'); return; }
@@ -333,7 +348,7 @@ $('#b-devcheck').addEventListener('click', async () => {
 $('#b-heard-yes').addEventListener('click', () => {
   dcSet('voice', 'ok', 'Sprachansage: funktioniert');
   $('#dc-voice-ask').hidden = true;
-  if (ui.dcCompatTried) { settings.speechCompat = true; toast('Kompatibilitätsmodus für Ansagen eingeschaltet.'); }
+  if (ui.dcCompatTried || dcSpeaker?.switchedToCompat) { settings.speechCompat = true; toast('Kompatibilitätsmodus für Ansagen eingeschaltet.'); }
   dcDiag(dcSpeaker.stats());
   saveDevcheck({ heard: true, compatWorked: ui.dcCompatTried || undefined });
 });
@@ -571,6 +586,7 @@ function finishSession(completed) {
   S.endedAt = new Date();
   S.completed = completed;
   devLog('speech_stats', S.speaker.stats());
+  if (S.speaker.switchedToCompat) settings.speechCompat = true;
 
   const exercises = S.items.map((it) => {
     const planned = it.reps * it.hold * it.sides;
