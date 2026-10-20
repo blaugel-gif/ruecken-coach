@@ -45,7 +45,7 @@ export function drawFigure(ctx, pose, view, opts = {}) {
   ctx.beginPath(); ctx.moveTo(10, 181); ctx.lineTo(190, 181); ctx.stroke();
   const props = opts.props || [];
   const seg = (pts, c, w) => { ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); pts.forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); ctx.stroke(); };
-  const dot = (p, r, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(p[0], p[1], r, 0, Math.PI * 2); ctx.fill(); };
+  const dot = (p, r, c) => { ctx.fillStyle = c; ctx.strokeStyle = opts.jointRing || 'rgba(0,0,0,0.85)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(p[0], p[1], r * 1.7, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); };
   let J;
   if (view === 'side') {
     const hip = pose.hip, sh = add(hip, pose.trunk, LEN.trunk), hd = add(sh, pose.head, LEN.neck);
@@ -124,7 +124,7 @@ export const MOTIONS = {
     { id: 'r', label: 'Becken nach rechts', key: { hip: [92, 112], trunk: 6 }, test: lt('pelvisShift', -0.12) },
   ] },
   beckenbalance: { view: 'side', kind: 'cycle', cycleSec: 5, base: S('sit'), props: ['chair'], phases: [
-    { id: 'rund', label: 'Rundrücken', key: { trunk: -12, head: 15 }, test: relLt('trunkLean', 4) },
+    { id: 'rund', label: 'Rundrücken', key: { trunk: -12, head: 15 }, test: relLt('trunkLean', 3) },
     { id: 'hohl', label: 'Hohlkreuz', key: { trunk: 8, head: 0 }, test: relGt('trunkLean', 3) },
     { id: 'mitte', label: 'Aufrecht in der Mitte', key: { trunk: 0 }, test: absLt('trunkLean', 6) },
   ] },
@@ -159,7 +159,7 @@ export const MOTIONS = {
   ] },
   hueftbeuger_halbknie: { view: 'side', kind: 'hold', base: S('kneel'), props: ['mat'], phases: [
     { id: 'auf', label: 'Oberkörper aufrecht', key: { trunk: 0 }, test: absLt('trunkLean', 10) },
-    { id: 'vor', label: 'Becken nach vorn schieben', key: { hip: [108, 148], lU: 80, lL: 195, lU2: 205, lL2: 270 }, test: gt('hipAngleMax', 162) },
+    { id: 'vor', label: 'Becken nach vorn schieben', key: { hip: [108, 148], lU: 80, lL: 195, lU2: 205, lL2: 270 }, test: gt('hipAngleMax', 158) },
   ] },
   hueftbeuger_stand: { view: 'side', kind: 'hold', base: S('stand', { hip: [100, 120], lU: 145, lL: 180, lU2: 215, lL2: 215 }), phases: [
     { id: 'auf', label: 'Oberkörper aufrecht', key: { trunk: 0 }, test: absLt('trunkLean', 10) },
@@ -204,11 +204,11 @@ export const MOTIONS = {
     { id: 'zur', label: 'Zurück zur Mitte', key: {}, test: lt('kneeAngleMax', 120) },
   ] },
   grundspannung_sitz: { view: 'front', kind: 'hold', base: F('sit', { hip: [100, 136] }), props: ['chair'], phases: [
-    { id: 'lang', label: 'Scheitel nach oben wachsen', key: { hip: [100, 132] }, test: relLt('noseY', 0.02) },
+    { id: 'lang', label: 'Scheitel nach oben wachsen', key: { hip: [100, 132] }, test: (m, b) => (has(m.noseY) && has(b?.noseY) ? m.noseY < b.noseY + 0.012 : null) },
     { id: 'gerade', label: 'Schultern gleich hoch', key: {}, test: absLt('shoulderTilt', 4) },
   ] },
   aufrichtung_stand: { view: 'front', kind: 'hold', base: F('stand', { hip: [100, 114] }), phases: [
-    { id: 'lang', label: 'Lang werden', key: { hip: [100, 110] }, test: relLt('noseY', 0.02) },
+    { id: 'lang', label: 'Lang werden', key: { hip: [100, 110] }, test: (m, b) => (has(m.noseY) && has(b?.noseY) ? m.noseY < b.noseY + 0.012 : null) },
     { id: 'gerade', label: 'Schultern & Becken gerade', key: {}, test: all(absLt('shoulderTilt', 4), absLt('hipTilt', 4)) },
   ] },
   nacken_druck: { view: 'front', kind: 'hold', base: F('sit', { lAU: 125, lAF: 215, rAU: 125, rAF: 215 }), props: ['chair'], phases: [
@@ -295,7 +295,7 @@ export function animate(canvas, motion, opts = {}) {
   const ctx = canvas.getContext('2d');
   const ks = keyframes(motion);
   const move = opts.move ?? 0.9;
-  const seq = [...ks, { ...ks[0], label: ks[0].label }];
+  const seq = ks; // Endlosschleife: nach dem letzten Teilschritt direkt zurück zur Ausgangsposition
   const durs = seq.map((k) => move + (k.hold || 0.4));
   const total = durs.reduce((a, b) => a + b, 0);
   let raf = 0, stopped = false;

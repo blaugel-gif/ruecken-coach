@@ -1,9 +1,9 @@
 // Sprachausgabe, Töne und Ablaufsteuerung einer Trainingseinheit
-import { byId } from './exercises.js?v=202610192125';
-import { cameraText } from './camera-svg.js?v=202610192125';
-import { MOTIONS } from './motion.js?v=202610192125';
-import { CHECKS } from './pose.js?v=202610192125';
-import * as neural from './neuralvoice.js?v=202610192125';
+import { byId } from './exercises.js?v=202610200851';
+import { cameraText } from './camera-svg.js?v=202610200851';
+import { MOTIONS } from './motion.js?v=202610200851';
+import { CHECKS } from './pose.js?v=202610200851';
+import * as neural from './neuralvoice.js?v=202610200851';
 
 const NUM = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'];
 const num = (n) => NUM[n] ?? String(n);
@@ -13,7 +13,9 @@ const num = (n) => NUM[n] ?? String(n);
 // Garbage Collector eingesammelt werden. Daher: eigene Warteschlange, Verzögerung nach cancel,
 // Referenzen halten, resume() vor jedem speak, Diagnose über log().
 export class Speaker {
+  static all = new Set();
   constructor(settings, log = () => {}) {
+    Speaker.all.add(this);
     this.settings = settings;
     this.log = log;
     this.voice = null;
@@ -101,15 +103,17 @@ export class Speaker {
           continue;
         }
         if (it.gen !== this.gen || this.settings.mute) continue;
+        // veraltete Hinweise (z. B. Korrekturen, die zu spät fertig wurden) nicht mehr abspielen
+        if (it.ttl && performance.now() - it.ts > it.ttl) { this.log('neural_stale', { text: it.text.slice(0, 30) }); continue; }
         await this._playBuf(buf);
         this.ended = (this.ended || 0) + 1;
       }
     } finally { this.pumping = false; }
   }
-  _sayNeural(text, interrupt) {
+  _sayNeural(text, interrupt, ttl = 0) {
     if (!this.ctx) this.unlock();
     if (interrupt) this._stopNeural();
-    this.q.push({ text, gen: this.gen });
+    this.q.push({ text, gen: this.gen, ts: performance.now(), ttl });
     this._pump();
   }
   _stopNeural() {
@@ -157,9 +161,13 @@ export class Speaker {
     speechSynthesis.speak(u);
     this.lastSpoke = performance.now();
   }
-  say(text, { interrupt = false } = {}) {
+  // nur ein Sprachkanal in der ganzen App: andere Sprecher (z. B. Tonprüfung) verstummen
+  claim() { if (Speaker.owner && Speaker.owner !== this) Speaker.owner.stop(); Speaker.owner = this; }
+  dispose() { if (Speaker.owner === this) { this.stop(); Speaker.owner = null; } Speaker.all.delete(this); }
+  say(text, { interrupt = false, ttl = 0 } = {}) {
     if (!text || this.settings.mute) return;
-    if (this.neural) { this._sayNeural(text, interrupt); return; }
+    this.claim();
+    if (this.neural) { this._sayNeural(text, interrupt, ttl); return; }
     if (!this.supported) return;
     if (interrupt && this.busy) {
       speechSynthesis.cancel();
@@ -373,12 +381,12 @@ export class SessionRunner {
       const gap = this.settings.cueGap || 4500;
       const sameGap = 9000;
       if (now - this.lastCueAt > gap && now - (this.cueHistory[bad.cue] || 0) > sameGap && !this.speaker.busy) {
-        this.speaker.say(bad.cue);
+        this.speaker.say(bad.cue, { ttl: 4000 });
         this.lastCueAt = now; this.cueHistory[bad.cue] = now; this.hadCorrection = true;
         return bad;
       }
     } else if (this.hadCorrection && results.length && results.every((r) => r.status === 'ok' || r.status === 'idle') && now - this.lastCueAt > 2500 && now - this.lastPraise > 15000 && !this.speaker.busy) {
-      this.speaker.say('Gut so.');
+      this.speaker.say('Gut so.', { ttl: 3000 });
       this.lastPraise = now; this.hadCorrection = false;
     }
     return null;

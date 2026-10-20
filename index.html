@@ -6,14 +6,14 @@
 <meta name="theme-color" content="#F5F6F2" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121716" media="(prefers-color-scheme: dark)">
 <title>Rücken-Coach</title>
-<meta name="app-version" content="202610192125">
+<meta name="app-version" content="202610200851">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="img/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500;700&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
-<link rel="stylesheet" href="css/app.css?v=202610192125">
+<link rel="stylesheet" href="css/app.css?v=202610200851">
 <script type="importmap">{"imports":{"onnxruntime-web":"https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/esm/ort.min.js"}}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
 </head>
@@ -178,6 +178,12 @@
       <div class="checks" id="checks"></div>
       <div class="cue" id="cue" hidden></div>
       <div class="camstatus" id="camstatus"></div>
+      <div class="askbox" id="askbox" hidden>
+        <div class="ask-state" id="ask-state"></div>
+        <div class="ask-q" id="ask-q"></div>
+        <div class="ask-a" id="ask-a"></div>
+      </div>
+      <div class="askhint" id="askhint" hidden></div>
       <div class="camfail" id="camfail" hidden>
         <p id="camfail-txt"></p>
         <button id="b-cam-retry" class="btn primary" type="button">Kamera erneut versuchen</button>
@@ -210,6 +216,7 @@
       </div>
     </div>
     <div class="controls">
+      <button class="cbtn ask" id="c-ask" type="button" hidden>🎙 Frage</button>
       <button class="cbtn" id="c-pause" type="button">Pause</button>
       <button class="cbtn" id="c-more" type="button">+10 s</button>
       <button class="cbtn" id="c-skip" type="button">Übung überspringen</button>
@@ -290,6 +297,9 @@
         <input id="s-rate" type="range" min="0.8" max="1.3" step="0.05" value="1.05">
         <label class="toggle"><input type="checkbox" id="s-pvoice"><span>Haltungskorrekturen ansagen</span></label>
         <label class="toggle"><input type="checkbox" id="s-camvoice"><span>Kameraposition ansagen</span></label>
+        <label for="s-ask">Rückfragen per Sprache</label>
+        <select id="s-ask"><option value="wake">Immer zuhören – mit „Coach, …“ ansprechen</option><option value="push">Nur nach Knopf „Frage“ oder Handzeichen</option><option value="off">Aus</option></select>
+        <p class="hint" id="s-ask-hint">Handzeichen: eine Hand 1 Sekunde über den Kopf heben (in Vorbereitung und Pausen). Für frei formulierte Fragen wird der Antwortdienst (Claude) genutzt, falls eingerichtet.</p>
         <label class="toggle"><input type="checkbox" id="s-formvoice"><span>Bewegungsablauf und Spüren während der Übung ansagen</span></label>
         <button id="b-voicetest" class="btn small ghost" type="button">Stimme testen</button>
       </section>
@@ -336,6 +346,6 @@
   <div id="tooltip" class="tooltip" hidden></div>
   <div id="toast" class="toast" hidden></div>
 </div>
-<script type="module" src="js/app.js?v=202610192125"></script>
+<script type="module" src="js/app.js?v=202610200851"></script>
 </body>
 </html>

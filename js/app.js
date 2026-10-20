@@ -1,14 +1,15 @@
-import { EQUIPMENT, byId } from './exercises.js?v=202610192125';
-import { suggestions, buildCustomPlan, MODES, defaultModeForHour } from './planner.js?v=202610192125';
-import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610192125';
-import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610192125';
-import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610192125';
-import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610192125';
-import { renderDashboard } from './dashboard.js?v=202610192125';
-import * as neural from './neuralvoice.js?v=202610192125';
-import { computeBalance, rankExercises, focusGroups, agoText, WINDOW_MIN } from './balance.js?v=202610192125';
-import { MUSCLES } from './exercises.js?v=202610192125';
-import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610192125';
+import { EQUIPMENT, byId } from './exercises.js?v=202610200851';
+import { suggestions, buildCustomPlan, MODES, defaultModeForHour } from './planner.js?v=202610200851';
+import { cameraSetupSVG, cameraText } from './camera-svg.js?v=202610200851';
+import { loadPoseModel, pickPose, toPoints, computeMetrics, PostureEvaluator, frameScore, drawOverlay, compactMetrics, CHECKS } from './pose.js?v=202610200851';
+import { Speaker, SessionRunner, scriptTexts } from './coach.js?v=202610200851';
+import { Store, DEFAULT_SETTINGS, SCHEMA_VERSION } from './store.js?v=202610200851';
+import { renderDashboard } from './dashboard.js?v=202610200851';
+import * as neural from './neuralvoice.js?v=202610200851';
+import { Listener, localAnswer, remoteAnswer, askSupported } from './ask.js?v=202610200851';
+import { computeBalance, rankExercises, focusGroups, agoText, WINDOW_MIN } from './balance.js?v=202610200851';
+import { MUSCLES } from './exercises.js?v=202610200851';
+import { MOTIONS, MotionTracker, animate as animateMotion } from './motion.js?v=202610200851';
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -282,8 +283,103 @@ async function startSession() {
     onStep: onStep, onTick: onTick, onFinish: () => finishSession(true), log: devLog,
   });
   S.runner.start();
+  startAsk();
   loop();
 }
+
+// ── Rückfragen ──
+function startAsk() {
+  const mode = settings.askMode || 'wake';
+  $('#c-ask').hidden = !askSupported || mode === 'off';
+  $('#askhint').hidden = true;
+  if (!askSupported || mode === 'off') return;
+  S.qa = [];
+  S.listener = new Listener({
+    mode, log: devLog,
+    isBusy: () => S?.speaker.busy,
+    onState: (st) => {
+      if (!S) return;
+      $('#c-ask').classList.toggle('on', st === 'listening');
+      if (st === 'listening') showAsk('listening', 'Ich höre …');
+      if (st === 'denied') { toast('Mikrofon blockiert – Rückfragen sind aus.'); $('#c-ask').hidden = true; }
+    },
+    onQuestion: (q) => handleQuestion(q),
+  });
+  S.listener.start();
+  $('#askhint').textContent = mode === 'wake' ? 'Frag: „Coach, …“' : 'Frage: Knopf oder eine Hand hoch';
+  $('#askhint').hidden = false;
+}
+
+function showAsk(state, title, q = '', a = '') {
+  const box = $('#askbox');
+  box.hidden = false; box.className = `askbox ${state}`;
+  $('#ask-state').textContent = title; $('#ask-q').textContent = q; $('#ask-a').textContent = a;
+  clearTimeout(showAsk._t);
+  if (state === 'answer') showAsk._t = setTimeout(() => { box.hidden = true; }, Math.min(16000, 4000 + a.length * 70));
+  if (state === 'listening') showAsk._t = setTimeout(() => { if (!S?.listener?.armed) box.hidden = true; }, 7500);
+}
+
+function askContext() {
+  const step = S.runner?.step;
+  const it = step?.item, ex = it ? byId[it.id] : null;
+  const left = step && Number.isFinite(step.duration) ? Math.max(0, Math.ceil(step.duration - S.runner.elapsedInStep())) : null;
+  const nextIdx = step?.idx !== undefined ? step.idx + 1 : 0;
+  const nextName = S.plan.items[step?.kind === 'prep' ? step.idx + 1 : nextIdx]?.name || null;
+  const mot = it ? MOTIONS[it.id] : null;
+  return {
+    ex, step, left, nextName, results: S.results, tracker: S.tracker, motion: mot, paused: S.runner?.paused,
+    muscles: ex ? ex.muscles.map((g) => MUSCLES[g]).join(', ') : '', cameraText: ex ? cameraText(ex) : '',
+  };
+}
+
+async function handleQuestion(q) {
+  if (!S) return;
+  if (!q) { S.speaker.beep(620, 140); return; }
+  const ctx = askContext();
+  const t = Math.round(performance.now() - S.t0);
+  devLog('ask_q', { q, step: ctx.step?.kind, ex: ctx.step?.item?.id });
+  const loc = localAnswer(q, ctx);
+  if (loc) {
+    if (loc.action === 'confirm') S.runner.confirm('voice');
+    if (loc.action === 'pause' && !S.runner.paused) { S.runner.pause(); $('#c-pause').textContent = 'Weiter'; }
+    if (loc.action === 'resume' && S.runner.paused) { S.runner.resume(); $('#c-pause').textContent = 'Pause'; }
+    if (loc.action === 'skip') S.runner.skipExercise();
+    if (loc.action === 'repeat') S.runner.announce(S.runner.step);
+    if (loc.say) { S.speaker.say(loc.say, { interrupt: true }); }
+    showAsk('answer', 'Antwort', q, loc.say || loc.show || 'Ich wiederhole.');
+    S.qa.push({ t, q, a: loc.say || loc.show || null, src: 'lokal', action: loc.action || null });
+    return;
+  }
+  if (!store.cloud) {
+    const a = 'Das kann ich ohne Antwortdienst nicht beantworten. Frag mich nach Zeit, Ausführung, Haltung oder was du spüren sollst.';
+    S.speaker.say(a, { interrupt: true }); showAsk('answer', 'Antwort', q, a); S.qa.push({ t, q, a, src: 'ohne-dienst' });
+    return;
+  }
+  showAsk('thinking', 'Moment …', q);
+  S.speaker.beep(700, 90);
+  const c = ctx;
+  const context = {
+    uebung: c.ex?.name || null, anleitung: c.ex?.steps || null, spueren: c.ex?.feel || null, muskeln: c.muscles,
+    abschnitt: c.step?.kind || null, wiederholung: c.step?.rep !== undefined ? c.step.rep + 1 : null, wiederholungenGesamt: c.step?.item?.reps ?? null,
+    seite: c.step?.side !== undefined ? c.step.side + 1 : null, restSekunden: c.left, naechsteUebung: c.nextName,
+    haltung: (c.results || []).filter((r) => r.status !== 'idle').map((r) => ({ pruefung: r.label, status: r.status, hinweis: r.cue || null })),
+    teilschritte: c.motion ? c.motion.phases.map((p) => ({ schritt: p.label, erreicht: c.tracker ? !!c.tracker.reached[p.id] : null })) : null,
+    kamera: c.cameraText,
+  };
+  try {
+    const a = await remoteAnswer(store.client, q, context);
+    if (!S) return;
+    S.speaker.say(a, { interrupt: true });
+    showAsk('answer', 'Antwort', q, a);
+    S.qa.push({ t, q, a, src: 'claude' });
+  } catch (e) {
+    const msg = String(e?.message || e);
+    devLog('ask_error', { e: msg });
+    const a = /Schlüssel fehlt|503/.test(msg) ? 'Der Antwortdienst ist noch nicht eingerichtet. Frag mich nach Zeit, Ausführung, Haltung oder was du spüren sollst.' : 'Ich konnte die Frage gerade nicht beantworten. Bitte versuch es noch einmal.';
+    S?.speaker.say(a, { interrupt: true }); showAsk('answer', 'Antwort', q, a); S?.qa.push({ t, q, a, src: 'fehler' });
+  }
+}
+$('#c-ask').addEventListener('click', () => { if (S?.listener) { S.listener.arm(); S.speaker.beep(620, 140); } });
 
 async function cameraPermission() {
   try { return (await navigator.permissions.query({ name: 'camera' })).state; } catch { return 'unbekannt'; }
@@ -360,7 +456,7 @@ function voiceHelp(sp) {
     <li>Über das Zahnrad neben der Engine → <strong>Sprachdaten installieren → Deutsch (Deutschland)</strong> herunterladen.</li>
     <li>Mit <strong>„Beispiel anhören“</strong> testen, Medienlautstärke hochdrehen, Chrome ganz schließen und die App neu öffnen.</li></ol>`;
 }
-function stopDc() { dcStream?.getTracks().forEach((t) => t.stop()); dcStream = null; $('#dc-video').hidden = true; }
+function stopDc() { dcStream?.getTracks().forEach((t) => t.stop()); dcStream = null; $('#dc-video').hidden = true; dcSpeaker?.dispose(); dcSpeaker = null; }
 
 function dcDiag(st) {
   const el = $('#dc-diag');
@@ -373,6 +469,7 @@ function saveDevcheck(extra = {}) {
   store.saveSettings(settings).catch(() => {});
 }
 function dcSpeakTest(compat) {
+  dcSpeaker?.dispose();
   dcSpeaker = new Speaker({ ...settings, mute: false, speechCompat: compat });
   dcSpeaker.unlock();
   dcSpeaker.say(compat ? 'Zweiter Versuch. Hörst du mich jetzt?' : 'Hallo. Wenn du mich hörst, tippe auf: Stimme gehört.');
@@ -587,7 +684,7 @@ function loop() {
   const pick = pickPose(res?.landmarks, S.prevCenter);
   const lm = pick.lm;
   if (lm) S.prevCenter = pick.center;
-  if (pick.jumped) { S.personJumps = (S.personJumps || 0) + 1; devLog('person_jump', { n: pick.n }); }
+  if (pick.jumped && pick.n > 1) { S.personJumps = (S.personJumps || 0) + 1; devLog('person_jump', { n: pick.n }); }
   if (pick.n > 1 && now - (S.lastMulti || 0) > 10000) { S.lastMulti = now; devLog('multi_person', { n: pick.n, chosen: pick.idx }); }
   S.P = lm ? toPoints(lm, cv.width, cv.height, settings.swapSides) : null;
   S.metrics = S.P ? computeMetrics(S.P) : null;
@@ -605,6 +702,10 @@ function loop() {
   updateHud(step, now);
   if (S.runner.paused) return;
 
+  if (S.listener && ['prep', 'rest', 'switch'].includes(step.kind) && S.metrics?.wristsAboveHead === 1) {
+    S.oneHandSince ??= now;
+    if (now - S.oneHandSince > 1200 && !S.listener.armed) { S.oneHandSince = null; S.listener.arm(); S.speaker.beep(620, 140); devLog('ask_gesture', {}); }
+  } else S.oneHandSince = null;
   if (step.kind === 'prep' && step.waiting) {
     const up = S.metrics?.wristsAboveHead === 2 && S.runner.elapsedInStep(now) > 3;
     if (up) {
@@ -911,6 +1012,7 @@ function finishSession(completed) {
   if (step?.kind === 'check') finishPostureCheck();
   S.runner?.stop();
   S.stopPrepAnim?.(); S.stopMiniAnim?.(); S.miniFor = null;
+  S.listener?.stop(); $('#askbox').hidden = true; $('#askhint').hidden = true; $('#c-ask').hidden = true;
   if (completed) S.speaker.say('Geschafft. Gut gemacht!');
   cancelAnimationFrame(S.raf);
   S.stream?.getTracks().forEach((t) => t.stop());
@@ -959,6 +1061,7 @@ function finishSession(completed) {
     flags: exercises.reduce((s, e) => s + e.flags, 0),
     fps: S.fps.value,
     personJumps: S.personJumps || 0,
+    qa: S.qa || [],
   };
   S.exercises = exercises;
   showCheckout();
@@ -1042,7 +1145,7 @@ function renderSettings() {
   $('#s-goal').value = Math.round(settings.correctionGoal * 100); $('#s-goal-o').textContent = `${$('#s-goal').value} %`;
   $('#s-check').checked = settings.postureCheck !== false; $('#s-confirm').checked = settings.confirmEach !== false; $('#s-swap').checked = !!settings.swapSides;
   $('#s-rate').value = settings.speechRate; $('#s-rate-o').textContent = String(settings.speechRate).replace('.', ',');
-  $('#s-pvoice').checked = settings.postureVoice !== false; $('#s-camvoice').checked = settings.speakCamera !== false; $('#s-formvoice').checked = settings.formVoice !== false;
+  $('#s-pvoice').checked = settings.postureVoice !== false; $('#s-camvoice').checked = settings.speakCamera !== false; $('#s-formvoice').checked = settings.formVoice !== false; $('#s-ask').value = settings.askMode || 'wake'; $('#s-ask').disabled = !askSupported; if (!askSupported) $('#s-ask-hint').textContent = 'Dieser Browser unterstützt keine Spracherkennung.';
   $('#s-far').value = settings.farView || 'auto';
   $('#s-cam').value = settings.camera; $('#s-model').value = settings.model; $('#s-floor').checked = settings.floorAtNoon !== false;
   $('#s-int').value = settings.intensity; $('#s-int-o').textContent = `${Math.round(settings.intensity * 100)} %`;
@@ -1098,6 +1201,7 @@ bind('#s-rate', (e) => { settings.speechRate = +e.target.value; $('#s-rate-o').t
 bind('#s-pvoice', (e) => { settings.postureVoice = e.target.checked; persist(); });
 bind('#s-camvoice', (e) => { settings.speakCamera = e.target.checked; persist(); });
 bind('#s-formvoice', (e) => { settings.formVoice = e.target.checked; persist(); });
+bind('#s-ask', (e) => { settings.askMode = e.target.value; persist(); });
 bind('#s-cam', (e) => { settings.camera = e.target.value; persist(); });
 bind('#s-far', (e) => { settings.farView = e.target.value; persist(); });
 bind('#s-model', (e) => { settings.model = e.target.value; persist(); });
